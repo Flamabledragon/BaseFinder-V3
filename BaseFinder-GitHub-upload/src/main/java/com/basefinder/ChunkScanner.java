@@ -1,17 +1,18 @@
 package com.basefinder;
 
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.ChestBlock;
-import net.minecraft.block.ShulkerBoxBlock;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.enums.ChestType;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.chunk.WorldChunk;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,16 +27,22 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Scans loaded chunks, scores them by how "stash-like" they are, remembers every
- * scored chunk (so flying around builds up a map), and groups neighbours into clusters.
+ * Scans loaded chunks, scores them by how stash-like they are, remembers every scored chunk
+ * (flying around builds up a map) and groups neighbouring chunks into clusters.
  */
 public class ChunkScanner {
+
+    public static final int T_CHEST = 0, T_BARREL = 1, T_SHULKER = 2, T_ENDER = 3, T_SPAWNER = 4, T_BEACON = 5;
+
+    /** One block worth drawing an ESP box on. */
+    public record Target(int x, int y, int z, int type) {}
 
     public static class Entry {
         public int cx, cz;
         public double score;
         public int containers, shulkers, spawners, other, stacked;
         public int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+        public final List<Target> targets = new ArrayList<>();
     }
 
     public static class Cluster {
@@ -68,15 +75,12 @@ public class ChunkScanner {
         }
     }
 
-    // ---- Settings (GUI changes these) ----
-    public static boolean findStorage = true;
-    public static boolean findSpawners = true;
-    public static boolean autoAlert = true;
-    public static int radius = 32;     // chunks around the player
-    public static int threshold = 8;   // min cluster score to count as a stash
-
     // ---- State ----
-    public static List<Cluster> clusters = new ArrayList<>();
+    public static volatile List<Cluster> clusters = new ArrayList<>();
+    /** Snapshots for the renderer (replaced as whole lists, never edited in place). */
+    public static volatile List<Target> targets = List.of();
+    public static volatile List<Entry> highlight = List.of();
+
     private static final Map<Long, Entry> entries = new HashMap<>();
     private static final Set<Long> alerted = new HashSet<>();
     private static String currentKey = "";
@@ -86,8 +90,8 @@ public class ChunkScanner {
         return ((long) cx << 32) | (cz & 0xffffffffL);
     }
 
-    public static void tick(MinecraftClient mc) {
-        if (mc.world == null || mc.player == null) return;
+    public static void tick(Minecraft mc) {
+        if (mc.level == null || mc.player == null) return;
         if (++ticks % 40 == 0) scan(mc);
     }
 
@@ -95,25 +99,28 @@ public class ChunkScanner {
         entries.clear();
         alerted.clear();
         clusters = new ArrayList<>();
+        targets = List.of();
+        highlight = List.of();
     }
 
-    public static void scan(MinecraftClient mc) {
-        ClientWorld world = mc.world;
-        if (world == null || mc.player == null) return;
+    public static void scan(Minecraft mc) {
+        ClientLevel level = mc.level;
+        if (level == null || mc.player == null) return;
 
-        var server = mc.getCurrentServerEntry();
-        String key = (server != null ? server.address : "singleplayer") + "|" + world.getRegistryKey().getValue();
+        var server = mc.getCurrentServer();
+        String key = (server != null ? server.ip : "singleplayer") + "|" + level.dimension();
         if (!key.equals(currentKey)) {
             clear();
             currentKey = key;
         }
 
-        int pcx = mc.player.getBlockPos().getX() >> 4;
-        int pcz = mc.player.getBlockPos().getZ() >> 4;
+        int pcx = mc.player.blockPosition().getX() >> 4;
+        int pcz = mc.player.blockPosition().getZ() >> 4;
+        int radius = Config.radius;
 
         for (int cx = pcx - radius; cx <= pcx + radius; cx++) {
             for (int cz = pcz - radius; cz <= pcz + radius; cz++) {
-                WorldChunk chunk = world.getChunkManager().getWorldChunk(cx, cz);
+                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
                 if (chunk == null) continue;
                 Entry e = analyze(chunk, cx, cz);
                 if (e == null) entries.remove(key(cx, cz));
@@ -122,47 +129,60 @@ public class ChunkScanner {
         }
 
         rebuildClusters(mc.player.getX(), mc.player.getZ());
+
+        List<Target> all = new ArrayList<>();
+        for (Entry e : entries.values()) all.addAll(e.targets);
+        targets = all;
+
         checkAlerts(mc);
     }
 
-    private static Entry analyze(WorldChunk chunk, int cx, int cz) {
+    private static Entry analyze(LevelChunk chunk, int cx, int cz) {
         Entry e = new Entry();
         e.cx = cx;
         e.cz = cz;
         Map<Integer, Integer> columns = new HashMap<>();
 
         for (BlockEntity be : chunk.getBlockEntities().values()) {
-            BlockState s = be.getCachedState();
+            BlockState s = be.getBlockState();
             Block b = s.getBlock();
-            BlockPos p = be.getPos();
+            BlockPos p = be.getBlockPos();
             double w;
+            int type = -1;
             boolean container = false;
+            boolean countsOnce = true;
 
             if (b == Blocks.SPAWNER) {
-                if (!findSpawners) continue;
+                if (!Config.findSpawners) continue;
+                type = T_SPAWNER;
                 e.spawners++;
                 w = 3;
-            } else if (!findStorage) {
+            } else if (!Config.findStorage) {
                 continue;
             } else if (b instanceof ShulkerBoxBlock) {
+                type = T_SHULKER;
                 e.shulkers++;
                 e.containers++;
                 container = true;
                 w = 3;
             } else if (b == Blocks.CHEST || b == Blocks.TRAPPED_CHEST) {
-                if (s.get(ChestBlock.CHEST_TYPE) == ChestType.LEFT) continue; // count double chests once
-                e.containers++;
+                type = T_CHEST;
+                if (s.getValue(ChestBlock.TYPE) == ChestType.LEFT) countsOnce = false; // other half is counted
+                else e.containers++;
                 container = true;
                 w = 1;
             } else if (b == Blocks.BARREL) {
+                type = T_BARREL;
                 e.containers++;
                 container = true;
                 w = 1;
             } else if (b == Blocks.ENDER_CHEST) {
+                type = T_ENDER;
                 e.containers++;
                 container = true;
                 w = 1.5;
             } else if (b == Blocks.BEACON) {
+                type = T_BEACON;
                 e.other++;
                 w = 3;
             } else if (b == Blocks.HOPPER || b == Blocks.FURNACE || b == Blocks.BLAST_FURNACE
@@ -172,6 +192,9 @@ public class ChunkScanner {
             } else {
                 continue;
             }
+
+            if (type >= 0) e.targets.add(new Target(p.getX(), p.getY(), p.getZ(), type));
+            if (!countsOnce) continue;
 
             e.score += w;
             e.minY = Math.min(e.minY, p.getY());
@@ -219,14 +242,18 @@ public class ChunkScanner {
             }
 
             c.finish(px, pz);
-            if (c.score >= threshold || (findSpawners && c.spawners > 0)) out.add(c);
+            if (c.score >= Config.threshold || (Config.findSpawners && c.spawners > 0)) out.add(c);
         }
 
         out.sort(Comparator.comparingDouble((Cluster c) -> -c.score));
         clusters = out;
+
+        List<Entry> hl = new ArrayList<>();
+        for (Cluster c : out) hl.addAll(c.chunks);
+        highlight = hl;
     }
 
-    private static void checkAlerts(MinecraftClient mc) {
+    private static void checkAlerts(Minecraft mc) {
         boolean found = false;
         for (Cluster c : clusters) {
             boolean isNew = true;
@@ -236,8 +263,13 @@ public class ChunkScanner {
             if (!isNew) continue;
             for (Entry e : c.chunks) alerted.add(key(e.cx, e.cz));
             found = true;
+            if (Config.autoAlert && mc.player != null) {
+                mc.player.displayClientMessage(Component.literal("[BaseFinder] Stash found at X " + c.x + " Y " + c.y
+                        + " Z " + c.z + " (score " + (int) c.score + ", " + c.containers + " containers, "
+                        + c.spawners + " spawners)"), false);
+            }
         }
-        if (found && autoAlert) save();
+        if (found) save();
     }
 
     /** Writes all current results to .minecraft/config/basefinder/<server>.txt. Returns the path or null. */

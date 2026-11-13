@@ -1,167 +1,276 @@
 package com.basefinder;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
-import net.minecraft.util.Util;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
-import java.util.Locale;
+import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
-/** In-game BaseFinder client-style interface. */
+/**
+ * Client-style ClickGUI. Everything is drawn by hand (dark purple theme, sidebar, module cards
+ * with toggle switches). Clicks are handled by invisible vanilla buttons laid over the drawn parts.
+ */
 public class FinderScreen extends Screen {
-    private static final int PURPLE = 0xFFC65CFF;
-    private static final int BG = 0xF00D0B12;
-    private static final int PANEL = 0xFF17141E;
-    private static final int CARD = 0xFF24202D;
-    private static final int HOVER = 0xFF382747;
-    private static final int MUTED = 0xFFAAA3B5;
-    private static final int GREEN = 0xFF75E0A0;
-    private static final int WHITE = 0xFFF5F0FA;
-    private static final int RED = 0xFFFF7777;
+    private enum Tab {
+        MODULES("Modules"), RESULTS("Results"), SETTINGS("Settings");
+        final String label;
+        Tab(String label) { this.label = label; }
+    }
 
-    private enum Tab { MODULES, ESP, COORDINATES, SETTINGS }
-    private Tab tab = Tab.MODULES;
-    private String status = "Ready • client-loaded chunks only";
-    private int selectedCluster = -1;
+    private record Mod(String name, String desc, BooleanSupplier on, Runnable toggle) {}
+    private record Row(String label, Supplier<String> value, Runnable dec, Runnable inc) {}
 
-    public FinderScreen() { super(Text.literal("BaseFinder")); }
+    // Colours (ARGB)
+    private static final int ACCENT = 0xFFB65CFF;
+    private static final int PANEL = 0xF2120C1E;
+    private static final int PANEL_EDGE = 0xFF3B2A5A;
+    private static final int SIDEBAR = 0xFF1A1228;
+    private static final int CARD = 0xFF1B1428;
+    private static final int CARD_HOVER = 0xFF261B3A;
+    private static final int TEXT = 0xFFE8DFF5;
+    private static final int DIM = 0xFF8E84A3;
+    private static final int OFF = 0xFF3A3346;
 
-    private int left() { return (width - 620) / 2; }
-    private int top() { return (height - 390) / 2; }
+    private static final int W = 424, H = 252;
+    private static Tab tab = Tab.MODULES;
+
+    private int px, py;
+    private List<Mod> mods;
+    private List<Row> rows;
+
+    public FinderScreen() {
+        super(Component.literal("Base Finder"));
+    }
+
+    // ---------------------------------------------------------------- setup
+    @Override
+    protected void init() {
+        px = (this.width - W) / 2;
+        py = (this.height - H) / 2;
+        int cx = px + 120;
+
+        // Sidebar tabs
+        Tab[] tabs = Tab.values();
+        for (int i = 0; i < tabs.length; i++) {
+            final Tab t = tabs[i];
+            hit(px + 8, py + 56 + i * 26, 104, 22, () -> { tab = t; this.rebuildWidgets(); });
+        }
+
+        mods = List.of(
+                new Mod("StorageFinder", "Scan containers", () -> Config.findStorage,
+                        () -> { Config.findStorage = !Config.findStorage; rescan(); }),
+                new Mod("SpawnerFinder", "Scan spawners", () -> Config.findSpawners,
+                        () -> { Config.findSpawners = !Config.findSpawners; rescan(); }),
+                new Mod("ChunkFinder", "Chunk highlight", () -> Config.chunkHighlight,
+                        () -> { Config.chunkHighlight = !Config.chunkHighlight; Config.save(); }),
+                new Mod("Storage ESP", "Boxes on storage", () -> Config.espStorage,
+                        () -> { Config.espStorage = !Config.espStorage; Config.save(); }),
+                new Mod("Spawner ESP", "Boxes on spawners", () -> Config.espSpawners,
+                        () -> { Config.espSpawners = !Config.espSpawners; Config.save(); }),
+                new Mod("Alerts", "Chat on new find", () -> Config.autoAlert,
+                        () -> { Config.autoAlert = !Config.autoAlert; Config.save(); })
+        );
+
+        rows = List.of(
+                new Row("Scan radius", () -> Config.radius + " chunks",
+                        () -> { Config.radius = Math.max(4, Config.radius - 4); rescan(); },
+                        () -> { Config.radius = Math.min(64, Config.radius + 4); rescan(); }),
+                new Row("Min stash score", () -> String.valueOf(Config.threshold),
+                        () -> { Config.threshold = Math.max(2, Config.threshold - 2); rescan(); },
+                        () -> { Config.threshold = Math.min(100, Config.threshold + 2); rescan(); }),
+                new Row("ESP range", () -> Config.espRange + " blocks",
+                        () -> { Config.espRange = Math.max(32, Config.espRange - 32); Config.save(); },
+                        () -> { Config.espRange = Math.min(256, Config.espRange + 32); Config.save(); }),
+                new Row("ESP opacity", () -> Config.espAlpha + "%",
+                        () -> { Config.espAlpha = Math.max(10, Config.espAlpha - 10); Config.save(); },
+                        () -> { Config.espAlpha = Math.min(100, Config.espAlpha + 10); Config.save(); })
+        );
+
+        if (tab == Tab.MODULES) {
+            for (int i = 0; i < mods.size(); i++) {
+                final Mod m = mods.get(i);
+                hit(cx + (i % 2) * 148, py + 46 + (i / 2) * 52, 140, 44, m.toggle());
+            }
+        } else if (tab == Tab.SETTINGS) {
+            int right = px + W - 14;
+            for (int i = 0; i < rows.size(); i++) {
+                final Row r = rows.get(i);
+                int y = py + 46 + i * 36;
+                hit(right - 128, y + 5, 20, 20, r.dec());
+                hit(right - 26, y + 5, 20, 20, r.inc());
+            }
+        } else {
+            hit(cx, py + 44, 92, 22, this::rescan);
+            hit(cx + 98, py + 44, 92, 22, () -> {
+                String path = ChunkScanner.save();
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player != null) {
+                    mc.player.displayClientMessage(Component.literal(path != null
+                            ? "[BaseFinder] Saved to " + path : "[BaseFinder] Could not save file"), false);
+                }
+            });
+            hit(cx + 196, py + 44, 92, 22, () -> { ChunkScanner.clear(); this.rebuildWidgets(); });
+
+            List<ChunkScanner.Cluster> res = ChunkScanner.clusters;
+            for (int i = 0; i < Math.min(7, res.size()); i++) {
+                final ChunkScanner.Cluster c = res.get(i);
+                hit(px + W - 14 - 44, py + 74 + i * 24 + 3, 44, 16, () ->
+                        Minecraft.getInstance().keyboardHandler.setClipboard(c.x + " " + c.y + " " + c.z));
+            }
+        }
+    }
+
+    /** Invisible clickable area (a vanilla button with alpha 0). */
+    private void hit(int x, int y, int w, int h, Runnable action) {
+        Button b = Button.builder(Component.empty(), btn -> action.run()).bounds(x, y, w, h).build();
+        b.setAlpha(0f);
+        this.addRenderableWidget(b);
+    }
+
+    private void rescan() {
+        ChunkScanner.scan(Minecraft.getInstance());
+        Config.save();
+        this.rebuildWidgets();
+    }
+
+    // ---------------------------------------------------------------- drawing
+    private void rect(GuiGraphics g, int x, int y, int w, int h, int color) {
+        g.fill(x, y, x + w, y + h, color);
+    }
+
+    private void text(GuiGraphics g, String s, int x, int y, int color) {
+        g.drawString(this.font, s, x, y, color);
+    }
+
+    private boolean over(int mx, int my, int x, int y, int w, int h) {
+        return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        int x=left(), y=top();
-        ctx.fill(0,0,width,height,0xB9000000);
-        ctx.fill(x,y,x+620,y+390,BG);
-        ctx.fill(x,y,x+620,y+3,PURPLE);
-        ctx.fill(x,y,x+620,y+54,PANEL);
-        ctx.drawTextWithShadow(textRenderer,"BASEFINDER",x+20,y+13,PURPLE);
-        ctx.drawTextWithShadow(textRenderer,"CLIENT  /  PRIVATE TEST BUILD",x+20,y+31,MUTED);
-        ctx.drawTextWithShadow(textRenderer,"RIGHT SHIFT  •  CLOSE",x+470,y+21,MUTED);
+    public void render(GuiGraphics g, int mx, int my, float partialTick) {
+        super.render(g, mx, my, partialTick); // background + (invisible) buttons
+        int cx = px + 120, cw = W - 128;
 
-        String[] tabs={"MODULES","ESP","COORDINATES","SETTINGS"};
-        int[] tx={x+16,x+164,x+312,x+460};
-        int[] tw={140,140,140,144};
-        for(int i=0;i<tabs.length;i++) {
-            boolean active=tab.ordinal()==i;
-            ctx.fill(tx[i],y+62,tx[i]+tw[i],y+91,active?HOVER:CARD);
-            if(active) ctx.fill(tx[i],y+62,tx[i]+tw[i],y+64,PURPLE);
-            ctx.drawCenteredTextWithShadow(textRenderer,tabs[i],tx[i]+tw[i]/2,y+73,active?PURPLE:WHITE);
+        // Panel
+        rect(g, px - 1, py - 1, W + 2, H + 2, PANEL_EDGE);
+        rect(g, px, py, W, H, PANEL);
+
+        // Sidebar
+        rect(g, px + 4, py + 4, 112, H - 8, SIDEBAR);
+        rect(g, px + 14, py + 14, 14, 14, ACCENT);
+        rect(g, px + 18, py + 18, 6, 6, SIDEBAR);
+        text(g, "BASEFINDER", px + 34, py + 13, TEXT);
+        text(g, "CLIENT", px + 34, py + 24, DIM);
+        text(g, "MENU", px + 14, py + 44, DIM);
+
+        Tab[] tabs = Tab.values();
+        for (int i = 0; i < tabs.length; i++) {
+            int ty = py + 56 + i * 26;
+            boolean active = tabs[i] == tab;
+            boolean hover = over(mx, my, px + 8, ty, 104, 22);
+            if (active) rect(g, px + 8, ty, 104, 22, 0xFF2A1B42);
+            else if (hover) rect(g, px + 8, ty, 104, 22, 0xFF221736);
+            if (active) rect(g, px + 8, ty, 2, 22, ACCENT);
+            text(g, tabs[i].label, px + 20, ty + 7, active ? TEXT : DIM);
         }
 
-        switch(tab) {
-            case MODULES -> renderModules(ctx,x,y,mouseX,mouseY);
-            case ESP -> renderEsp(ctx,x,y,mouseX,mouseY);
-            case COORDINATES -> renderCoordinates(ctx,x,y,mouseX,mouseY);
-            case SETTINGS -> renderSettings(ctx,x,y,mouseX,mouseY);
+        // Status box
+        rect(g, px + 8, py + H - 44, 104, 34, 0xFF140E20);
+        rect(g, px + 14, py + H - 32, 5, 5, ACCENT);
+        text(g, "Base Finder", px + 24, py + H - 38, TEXT);
+        text(g, ChunkScanner.clusters.size() + " stash(es) found", px + 24, py + H - 26, DIM);
+
+        // Header
+        rect(g, cx, py + 8, cw, 26, SIDEBAR);
+        rect(g, cx, py + 33, cw, 1, ACCENT);
+        text(g, tab.label, cx + 10, py + 17, TEXT);
+        String hint = "Esc to close";
+        text(g, hint, cx + cw - this.font.width(hint) - 10, py + 17, DIM);
+
+        if (tab == Tab.MODULES) drawModules(g, mx, my, cx);
+        else if (tab == Tab.SETTINGS) drawSettings(g, mx, my, cx, cw);
+        else drawResults(g, mx, my, cx, cw);
+    }
+
+    private void drawModules(GuiGraphics g, int mx, int my, int cx) {
+        for (int i = 0; i < mods.size(); i++) {
+            Mod m = mods.get(i);
+            int x = cx + (i % 2) * 148, y = py + 46 + (i / 2) * 52;
+            boolean on = m.on().getAsBoolean();
+            rect(g, x, y, 140, 44, over(mx, my, x, y, 140, 44) ? CARD_HOVER : CARD);
+            if (on) rect(g, x, y, 2, 44, ACCENT);
+            text(g, m.name(), x + 10, y + 9, TEXT);
+            text(g, m.desc(), x + 10, y + 25, DIM);
+            toggle(g, x + 140 - 36, y + 9, on);
         }
-        ctx.fill(x+16,y+356,x+604,y+380,PANEL);
-        ctx.drawTextWithShadow(textRenderer,status,x+24,y+364,MUTED);
-        super.render(ctx,mouseX,mouseY,delta);
+        text(g, "Click a card to turn it on or off.", cx, py + H - 22, DIM);
     }
 
-    private void renderModules(DrawContext c,int x,int y,int mx,int my) {
-        title(c,x+20,y+108,"DETECTION MODULES");
-        card(c,x+18,y+132,284,66,"Storage Finder",ChunkScanner.findStorage,"Chest • barrel • shulker • ender chest");
-        card(c,x+318,y+132,284,66,"Spawner Finder",ChunkScanner.findSpawners,"Spawner block entities in loaded chunks");
-        card(c,x+18,y+210,284,66,"Local auto-save",ChunkScanner.autoAlert,"Save new candidate groups to config folder");
-        card(c,x+318,y+210,284,66,"Chat announcements",false,"Disabled • BaseFinder never posts to chat");
-        button(c,x+18,y+292,180,34,"SCAN LOADED CHUNKS",mx,my);
-        button(c,x+210,y+292,180,34,"SAVE LOCAL RESULTS",mx,my);
-        button(c,x+402,y+292,200,34,"CLEAR RESULTS",mx,my);
+    private void toggle(GuiGraphics g, int x, int y, boolean on) {
+        rect(g, x, y, 26, 12, on ? ACCENT : OFF);
+        rect(g, on ? x + 16 : x + 2, y + 2, 8, 8, 0xFFFFFFFF);
     }
 
-    private void renderEsp(DrawContext c,int x,int y,int mx,int my) {
-        title(c,x+20,y+108,"ESP VERIFICATION");
-        c.drawTextWithShadow(textRenderer,"Visual outlines are a separate renderer feature; these switches are prepared as settings.",x+20,y+132,MUTED);
-        card(c,x+18,y+160,284,58,"Chest / trapped chest ESP",EspSettings.chests,"Storage block outline setting");
-        card(c,x+318,y+160,284,58,"Spawner ESP",EspSettings.spawners,"Spawner outline setting");
-        card(c,x+18,y+230,284,58,"Barrel / shulker ESP",EspSettings.specialStorage,"Special storage outline setting");
-        card(c,x+318,y+230,284,58,"Coordinate labels",EspSettings.labels,"Show labels with an ESP renderer");
-        c.drawTextWithShadow(textRenderer,"Note: toggles currently store preferences; world outlines are not yet rendered.",x+20,y+310,RED);
-    }
+    private void drawSettings(GuiGraphics g, int mx, int my, int cx, int cw) {
+        int right = px + W - 14;
+        for (int i = 0; i < rows.size(); i++) {
+            Row r = rows.get(i);
+            int y = py + 46 + i * 36;
+            rect(g, cx, y, cw, 30, CARD);
+            text(g, r.label(), cx + 10, y + 11, TEXT);
 
-    private void renderCoordinates(DrawContext c,int x,int y,int mx,int my) {
-        title(c,x+20,y+108,"LOCAL DETECTION RESULTS");
-        c.drawTextWithShadow(textRenderer,"Candidate groups found: "+ChunkScanner.clusters.size(),x+20,y+130,MUTED);
-        int rowY=y+151;
-        int shown=Math.min(6,ChunkScanner.clusters.size());
-        for(int i=0;i<shown;i++) {
-            ChunkScanner.Cluster cl=ChunkScanner.clusters.get(i);
-            int ry=rowY+i*31;
-            c.fill(x+18,ry,x+602,ry+27,selectedCluster==i?HOVER:CARD);
-            String label=String.format(Locale.ROOT,"X %d   Y %d   Z %d    •    %.0f blocks    •    score %.0f",cl.x,cl.y,cl.z,cl.dist,cl.score);
-            c.drawTextWithShadow(textRenderer,label,x+28,ry+9,WHITE);
-            c.drawTextWithShadow(textRenderer,"COPY",x+550,ry+9,PURPLE);
+            boolean hd = over(mx, my, right - 128, y + 5, 20, 20);
+            boolean hi = over(mx, my, right - 26, y + 5, 20, 20);
+            rect(g, right - 128, y + 5, 20, 20, hd ? ACCENT : OFF);
+            rect(g, right - 26, y + 5, 20, 20, hi ? ACCENT : OFF);
+            text(g, "-", right - 128 + 8, y + 11, 0xFFFFFFFF);
+            text(g, "+", right - 26 + 7, y + 11, 0xFFFFFFFF);
+
+            String v = r.value().get();
+            int mid = right - 108 + (82 - this.font.width(v)) / 2;
+            text(g, v, mid, y + 11, TEXT);
         }
-        if(shown==0) c.drawTextWithShadow(textRenderer,"No candidate groups yet. Scan loaded chunks first.",x+24,rowY+12,MUTED);
-        button(c,x+18,y+345,180,30,"SCAN AGAIN",mx,my);
-        button(c,x+210,y+345,180,30,"SAVE RESULTS",mx,my);
+        text(g, "ESP draws through walls: gold chests, orange barrels, purple shulkers, red spawners.",
+                cx, py + H - 22, DIM);
     }
 
-    private void renderSettings(DrawContext c,int x,int y,int mx,int my) {
-        title(c,x+20,y+108,"SCAN SETTINGS");
-        button(c,x+18,y+145,130,34,"RADIUS  −",mx,my);
-        button(c,x+158,y+145,130,34,"RADIUS  +",mx,my);
-        button(c,x+318,y+145,130,34,"SCORE  −",mx,my);
-        button(c,x+458,y+145,144,34,"SCORE  +",mx,my);
-        c.drawTextWithShadow(textRenderer,"Radius: "+ChunkScanner.radius+" chunks",x+20,y+200,WHITE);
-        c.drawTextWithShadow(textRenderer,"Minimum score: "+ChunkScanner.threshold,x+318,y+200,WHITE);
-        c.drawTextWithShadow(textRenderer,"Results are based only on block entities in chunks already loaded by your client.",x+20,y+250,MUTED);
-        c.drawTextWithShadow(textRenderer,"No server requests, chat announcements, or automatic coordinate sharing.",x+20,y+274,GREEN);
-    }
-
-    private void title(DrawContext c,int x,int y,String s){c.drawTextWithShadow(textRenderer,s,x,y,PURPLE);}
-    private void card(DrawContext c,int x,int y,int w,int h,String name,boolean on,String sub){
-        c.fill(x,y,x+w,y+h,CARD); c.fill(x,y,x+3,y+h,on?PURPLE:0xFF514B59);
-        c.drawTextWithShadow(textRenderer,name,x+13,y+10,WHITE);
-        c.drawTextWithShadow(textRenderer,sub,x+13,y+31,MUTED);
-        c.fill(x+w-52,y+10,x+w-12,y+29,on?0xFF173B2A:0xFF3B2026);
-        c.drawCenteredTextWithShadow(textRenderer,on?"ON":"OFF",x+w-32,y+16,on?GREEN:RED);
-    }
-    private void button(DrawContext c,int x,int y,int w,int h,String s,int mx,int my){
-        boolean hover=mx>=x&&mx<=x+w&&my>=y&&my<=y+h;
-        c.fill(x,y,x+w,y+h,hover?HOVER:CARD); c.fill(x,y,x+w,y+2,hover?PURPLE:0xFF51465C);
-        c.drawCenteredTextWithShadow(textRenderer,s,x+w/2,y+12,WHITE);
-    }
-    private boolean inside(double mx,double my,int x,int y,int w,int h){return mx>=x&&mx<=x+w&&my>=y&&my<=y+h;}
-
-    @Override public boolean mouseClicked(Click click,boolean doubled) {
-        if(click.button()!=0)return super.mouseClicked(click,doubled);
-        double mx=click.x(),my=click.y(); int x=left(),y=top();
-        if(inside(mx,my,x+16,y+62,140,29)){tab=Tab.MODULES;return true;}
-        if(inside(mx,my,x+164,y+62,140,29)){tab=Tab.ESP;return true;}
-        if(inside(mx,my,x+312,y+62,140,29)){tab=Tab.COORDINATES;return true;}
-        if(inside(mx,my,x+460,y+62,144,29)){tab=Tab.SETTINGS;return true;}
-
-        if(tab==Tab.MODULES){
-            if(inside(mx,my,x+18,y+132,284,66)){ChunkScanner.findStorage=!ChunkScanner.findStorage;rescan();return true;}
-            if(inside(mx,my,x+318,y+132,284,66)){ChunkScanner.findSpawners=!ChunkScanner.findSpawners;rescan();return true;}
-            if(inside(mx,my,x+18,y+210,284,66)){ChunkScanner.autoAlert=!ChunkScanner.autoAlert;status="Local auto-save "+(ChunkScanner.autoAlert?"enabled":"disabled");return true;}
-            if(inside(mx,my,x+18,y+292,180,34)){rescan();return true;}
-            if(inside(mx,my,x+210,y+292,180,34)){status=ChunkScanner.save()==null?"Local save failed":"Results saved in .minecraft/config/basefinder";return true;}
-            if(inside(mx,my,x+402,y+292,200,34)){ChunkScanner.clear();status="Results cleared";return true;}
-        } else if(tab==Tab.ESP){
-            if(inside(mx,my,x+18,y+160,284,58)){EspSettings.chests=!EspSettings.chests;status="Chest ESP preference "+(EspSettings.chests?"enabled":"disabled");return true;}
-            if(inside(mx,my,x+318,y+160,284,58)){EspSettings.spawners=!EspSettings.spawners;status="Spawner ESP preference "+(EspSettings.spawners?"enabled":"disabled");return true;}
-            if(inside(mx,my,x+18,y+230,284,58)){EspSettings.specialStorage=!EspSettings.specialStorage;status="Special storage ESP preference "+(EspSettings.specialStorage?"enabled":"disabled");return true;}
-            if(inside(mx,my,x+318,y+230,284,58)){EspSettings.labels=!EspSettings.labels;status="Coordinate label preference "+(EspSettings.labels?"enabled":"disabled");return true;}
-        } else if(tab==Tab.COORDINATES){
-            int shown=Math.min(6,ChunkScanner.clusters.size());
-            for(int i=0;i<shown;i++){int ry=y+151+i*31;if(inside(mx,my,x+18,ry,584,27)){ChunkScanner.Cluster cl=ChunkScanner.clusters.get(i);MinecraftClient.getInstance().keyboard.setClipboard("X: "+cl.x+" Y: "+cl.y+" Z: "+cl.z);selectedCluster=i;status="Copied X "+cl.x+" Y "+cl.y+" Z "+cl.z;return true;}}
-            if(inside(mx,my,x+18,y+345,180,30)){rescan();return true;}
-            if(inside(mx,my,x+210,y+345,180,30)){status=ChunkScanner.save()==null?"Local save failed":"Results saved locally";return true;}
-        } else if(tab==Tab.SETTINGS){
-            if(inside(mx,my,x+18,y+145,130,34)){ChunkScanner.radius=Math.max(4,ChunkScanner.radius-4);rescan();return true;}
-            if(inside(mx,my,x+158,y+145,130,34)){ChunkScanner.radius=Math.min(64,ChunkScanner.radius+4);rescan();return true;}
-            if(inside(mx,my,x+318,y+145,130,34)){ChunkScanner.threshold=Math.max(2,ChunkScanner.threshold-2);rescan();return true;}
-            if(inside(mx,my,x+458,y+145,144,34)){ChunkScanner.threshold=Math.min(100,ChunkScanner.threshold+2);rescan();return true;}
+    private void drawResults(GuiGraphics g, int mx, int my, int cx, int cw) {
+        String[] labels = {"Scan now", "Save file", "Clear"};
+        for (int i = 0; i < 3; i++) {
+            int x = cx + i * 98, y = py + 44;
+            rect(g, x, y, 92, 22, over(mx, my, x, y, 92, 22) ? ACCENT : CARD);
+            text(g, labels[i], x + (92 - this.font.width(labels[i])) / 2, y + 7, TEXT);
         }
-        return super.mouseClicked(click,doubled);
+
+        List<ChunkScanner.Cluster> res = ChunkScanner.clusters;
+        if (res.isEmpty()) {
+            text(g, "Nothing found yet. Fly around, or lower the min stash score.", cx, py + 84, DIM);
+            return;
+        }
+        for (int i = 0; i < Math.min(7, res.size()); i++) {
+            ChunkScanner.Cluster c = res.get(i);
+            int y = py + 74 + i * 24;
+            rect(g, cx, y, cw, 21, CARD);
+            rect(g, cx, y, 2, 21, ACCENT);
+            text(g, "#" + (i + 1) + "  " + c.x + ", " + c.y + ", " + c.z, cx + 8, y + 6, TEXT);
+            text(g, (int) c.score + " pts  " + (int) c.dist + "m", cx + 130, y + 6, DIM);
+
+            int bx = px + W - 14 - 44;
+            boolean hv = over(mx, my, bx, y + 3, 44, 16);
+            rect(g, bx, y + 3, 44, 16, hv ? ACCENT : OFF);
+            text(g, "COPY", bx + (44 - this.font.width("COPY")) / 2, y + 7, 0xFFFFFFFF);
+        }
+        if (res.size() > 7) {
+            text(g, "+" + (res.size() - 7) + " more in the saved file", cx, py + H - 22, DIM);
+        }
     }
-    private void rescan(){ChunkScanner.scan(MinecraftClient.getInstance());status="Scan complete • "+ChunkScanner.clusters.size()+" candidate groups";}
-    @Override public boolean shouldPause(){return false;}
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
 }

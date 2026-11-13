@@ -1,29 +1,34 @@
 package com.basefinder;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 public class BaseFinderClient implements ClientModInitializer {
-    private static KeyBinding openGui;
+    private static KeyMapping openGui;
 
     @Override
     public void onInitializeClient() {
-        KeyBinding.Category category = KeyBinding.Category.create(Identifier.of("basefinder", "main"));
-        openGui = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        Config.load();
+
+        KeyMapping.Category category = KeyMapping.Category.register(
+                Identifier.fromNamespaceAndPath("basefinder", "main"));
+        openGui = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.basefinder.open_gui",
-                InputUtil.Type.KEYSYM,
+                InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_RIGHT_SHIFT,
                 category));
 
+        EspRenderer.init();
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             ChunkScanner.tick(client);
-            while (openGui.wasPressed()) {
-                if (client.world != null && client.currentScreen == null) {
+            while (openGui.consumeClick()) {
+                if (client.level != null && client.screen == null) {
                     ChunkScanner.scan(client);
                     client.setScreen(new FinderScreen());
                 }

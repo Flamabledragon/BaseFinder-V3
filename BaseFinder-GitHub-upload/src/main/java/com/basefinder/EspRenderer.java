@@ -1,0 +1,259 @@
+package com.basefinder;
+
+import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.platform.DepthTestFunction;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.MappableRingBuffer;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
+import org.joml.Vector3f;
+import org.joml.Vector4f;
+import org.lwjgl.system.MemoryUtil;
+
+import java.util.List;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
+
+/**
+ * Through-walls ESP. Follows the official Fabric 1.21.11 "Rendering in the World" example:
+ * a custom render pipeline with NO_DEPTH_TEST, so boxes show through stone/dirt/deepslate.
+ */
+public final class EspRenderer {
+    private EspRenderer() {}
+
+    private static final String ID = "basefinder";
+
+    private static final RenderPipeline FILLED_THROUGH_WALLS = RenderPipelines.register(
+            RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
+                    .withLocation(Identifier.fromNamespaceAndPath(ID, "pipeline/filled_box_through_walls"))
+                    .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+                    .build());
+
+    private static final ByteBufferBuilder allocator = new ByteBufferBuilder(RenderType.SMALL_BUFFER_SIZE);
+    private static BufferBuilder buffer;
+
+    private static final Vector4f COLOR_MODULATOR = new Vector4f(1f, 1f, 1f, 1f);
+    private static final Vector3f MODEL_OFFSET = new Vector3f();
+    private static final Matrix4f TEXTURE_MATRIX = new Matrix4f();
+    private static MappableRingBuffer vertexBuffer;
+
+    private static final int MAX_BOXES = 1500;
+
+    // r, g, b per target type (see ChunkScanner.T_*)
+    private static final float[][] COLORS = {
+            {1.00f, 0.75f, 0.15f}, // chest   - gold
+            {0.85f, 0.50f, 0.20f}, // barrel  - orange
+            {0.75f, 0.35f, 1.00f}, // shulker - purple
+            {0.20f, 0.85f, 0.85f}, // ender   - teal
+            {1.00f, 0.20f, 0.20f}, // spawner - red
+            {0.30f, 0.60f, 1.00f}  // beacon  - blue
+    };
+
+    public static void init() {
+        WorldRenderEvents.BEFORE_TRANSLUCENT.register(EspRenderer::onRender);
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> close());
+    }
+
+    private static void onRender(WorldRenderContext context) {
+        try {
+            extract(context);
+            if (buffer != null) {
+                drawThroughWalls(Minecraft.getInstance(), FILLED_THROUGH_WALLS);
+            }
+        } catch (Exception ex) {
+            buffer = null; // never crash the game because of the ESP
+        }
+    }
+
+    // ---------------- extraction: add every box to the buffer ----------------
+    private static void extract(WorldRenderContext context) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) return;
+
+        List<ChunkScanner.Target> targets = ChunkScanner.targets;
+        List<ChunkScanner.Entry> chunks = ChunkScanner.highlight;
+        boolean boxes = (Config.espStorage || Config.espSpawners) && !targets.isEmpty();
+        boolean zones = Config.chunkHighlight && !chunks.isEmpty();
+        if (!boxes && !zones) return;
+
+        PoseStack matrices = context.matrices();
+        Vec3 camera = context.worldState().cameraRenderState.pos;
+
+        matrices.pushPose();
+        matrices.translate(-camera.x, -camera.y, -camera.z);
+        Matrix4fc pose = matrices.last().pose();
+
+        float alpha = Config.espAlpha / 100f;
+        double range = Config.espRange;
+        double range2 = range * range;
+        int count = 0;
+
+        if (zones) {
+            double zr = (range + 48) * (range + 48);
+            for (ChunkScanner.Entry e : chunks) {
+                if (count >= MAX_BOXES) break;
+                double dx = (e.cx * 16 + 8) - camera.x, dz = (e.cz * 16 + 8) - camera.z;
+                if (dx * dx + dz * dz > zr) continue;
+                ensureBuffer();
+                renderFilledBox(pose, buffer,
+                        e.cx * 16f, e.minY - 1f, e.cz * 16f,
+                        e.cx * 16f + 16f, e.maxY + 2f, e.cz * 16f + 16f,
+                        0.71f, 0.36f, 1.0f, alpha * 0.35f);
+                count++;
+            }
+        }
+
+        if (boxes) {
+            for (ChunkScanner.Target t : targets) {
+                if (count >= MAX_BOXES) break;
+                boolean spawner = t.type() == ChunkScanner.T_SPAWNER;
+                if (spawner ? !Config.espSpawners : !Config.espStorage) continue;
+                double dx = t.x() + 0.5 - camera.x, dy = t.y() + 0.5 - camera.y, dz = t.z() + 0.5 - camera.z;
+                if (dx * dx + dy * dy + dz * dz > range2) continue;
+                float[] c = COLORS[t.type()];
+                ensureBuffer();
+                float e = 0.03f; // tiny grow so faces don't z-fight with the block
+                renderFilledBox(pose, buffer,
+                        t.x() - e, t.y() - e, t.z() - e,
+                        t.x() + 1f + e, t.y() + 1f + e, t.z() + 1f + e,
+                        c[0], c[1], c[2], Math.min(1f, alpha + 0.2f));
+                count++;
+            }
+        }
+
+        matrices.popPose();
+    }
+
+    private static void ensureBuffer() {
+        if (buffer == null) {
+            buffer = new BufferBuilder(allocator, FILLED_THROUGH_WALLS.getVertexFormatMode(),
+                    FILLED_THROUGH_WALLS.getVertexFormat());
+        }
+    }
+
+    private static void renderFilledBox(Matrix4fc m, BufferBuilder b, float minX, float minY, float minZ,
+                                        float maxX, float maxY, float maxZ, float r, float g, float bl, float a) {
+        // Front
+        b.addVertex(m, minX, minY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, minY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, maxY, maxZ).setColor(r, g, bl, a);
+        // Back
+        b.addVertex(m, maxX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, maxY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, minZ).setColor(r, g, bl, a);
+        // Left
+        b.addVertex(m, minX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, minY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, maxY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, maxY, minZ).setColor(r, g, bl, a);
+        // Right
+        b.addVertex(m, maxX, minY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, maxZ).setColor(r, g, bl, a);
+        // Top
+        b.addVertex(m, minX, maxY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, maxY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, maxY, minZ).setColor(r, g, bl, a);
+        // Bottom
+        b.addVertex(m, minX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, minY, minZ).setColor(r, g, bl, a);
+        b.addVertex(m, maxX, minY, maxZ).setColor(r, g, bl, a);
+        b.addVertex(m, minX, minY, maxZ).setColor(r, g, bl, a);
+    }
+
+    // ---------------- drawing ----------------
+    private static void drawThroughWalls(Minecraft client, RenderPipeline pipeline) {
+        MeshData builtBuffer = buffer.buildOrThrow();
+        MeshData.DrawState drawParameters = builtBuffer.drawState();
+        VertexFormat format = drawParameters.format();
+
+        GpuBuffer vertices = upload(drawParameters, format, builtBuffer);
+        draw(client, pipeline, builtBuffer, drawParameters, vertices, format);
+
+        vertexBuffer.rotate();
+        buffer = null;
+    }
+
+    private static GpuBuffer upload(MeshData.DrawState drawParameters, VertexFormat format, MeshData builtBuffer) {
+        int vertexBufferSize = drawParameters.vertexCount() * format.getVertexSize();
+
+        if (vertexBuffer == null || vertexBuffer.size() < vertexBufferSize) {
+            if (vertexBuffer != null) vertexBuffer.close();
+            vertexBuffer = new MappableRingBuffer(() -> ID + " esp pipeline",
+                    GpuBuffer.USAGE_VERTEX | GpuBuffer.USAGE_MAP_WRITE, vertexBufferSize);
+        }
+
+        CommandEncoder commandEncoder = RenderSystem.getDevice().createCommandEncoder();
+        try (GpuBuffer.MappedView mappedView = commandEncoder.mapBuffer(
+                vertexBuffer.currentBuffer().slice(0, builtBuffer.vertexBuffer().remaining()), false, true)) {
+            MemoryUtil.memCopy(builtBuffer.vertexBuffer(), mappedView.data());
+        }
+        return vertexBuffer.currentBuffer();
+    }
+
+    private static void draw(Minecraft client, RenderPipeline pipeline, MeshData builtBuffer,
+                             MeshData.DrawState drawParameters, GpuBuffer vertices, VertexFormat format) {
+        GpuBuffer indices;
+        VertexFormat.IndexType indexType;
+
+        if (pipeline.getVertexFormatMode() == VertexFormat.Mode.QUADS) {
+            builtBuffer.sortQuads(allocator, RenderSystem.getProjectionType().vertexSorting());
+            indices = pipeline.getVertexFormat().uploadImmediateIndexBuffer(builtBuffer.indexBuffer());
+            indexType = builtBuffer.drawState().indexType();
+        } else {
+            RenderSystem.AutoStorageIndexBuffer shapeIndexBuffer = RenderSystem.getSequentialBuffer(pipeline.getVertexFormatMode());
+            indices = shapeIndexBuffer.getBuffer(drawParameters.indexCount());
+            indexType = shapeIndexBuffer.type();
+        }
+
+        GpuBufferSlice dynamicTransforms = RenderSystem.getDynamicUniforms()
+                .writeTransform(RenderSystem.getModelViewMatrix(), COLOR_MODULATOR, MODEL_OFFSET, TEXTURE_MATRIX);
+
+        try (RenderPass renderPass = RenderSystem.getDevice()
+                .createCommandEncoder()
+                .createRenderPass(() -> ID + " esp rendering",
+                        client.getMainRenderTarget().getColorTextureView(), OptionalInt.empty(),
+                        client.getMainRenderTarget().getDepthTextureView(), OptionalDouble.empty())) {
+            renderPass.setPipeline(pipeline);
+            RenderSystem.bindDefaultUniforms(renderPass);
+            renderPass.setUniform("DynamicTransforms", dynamicTransforms);
+            renderPass.setVertexBuffer(0, vertices);
+            renderPass.setIndexBuffer(indices, indexType);
+            renderPass.drawIndexed(0, 0, drawParameters.indexCount(), 1);
+        }
+
+        builtBuffer.close();
+    }
+
+    public static void close() {
+        try {
+            allocator.close();
+            if (vertexBuffer != null) {
+                vertexBuffer.close();
+                vertexBuffer = null;
+            }
+        } catch (Exception ignored) {
+        }
+    }
+}
