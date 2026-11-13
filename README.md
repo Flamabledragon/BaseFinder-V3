@@ -1,17 +1,11 @@
-# BaseFinder
+# Base Finder 2.2 (Fabric 1.21.11, Mojang mappings)
+Right Shift opens the module-control GUI (Modules / Results / HUD / Appearance).
 
-Client-side Fabric mod for Minecraft 1.21.11 (Java 21).
+- Base Finder: stash scanner + through-walls ESP, village filter, remembered map
+- Sound Detector: alert cards, chat notices and world markers for chests, doors, machinery, players, explosions
+- HUD: coordinates, nearest-stash direction
+- Streamer Mode: hides coordinates in chat / HUD / GUI
+- Appearance: accent themes, rotating 3D block (grass, dirt, stone, gold ore)
 
-## Controls
-- **Right Shift**: open/close the BaseFinder ClickGUI.
-- **Modules / ESP**: toggle chest, other-storage, and spawner outlines independently.
-- **Coords**: view candidate clusters found by scanning chunks and copy coordinates.
-- **Settings**: adjust scan radius and minimum cluster score.
-
-## ESP behavior
-Outlines are rendered locally around matching block entities in chunks already loaded by your Minecraft client. Chest outlines are gold, other storage (barrels, shulker boxes, ender chests) is purple, and spawners are red. This does not load chunks or reveal unloaded/hidden areas.
-
-The scanner accumulates candidate clusters as you explore. Results are estimates based on visible block entities, not a guarantee that a location is a player base. Automatic chat alerts are off by default.
-
-## Build
-Run `gradle build`. The mod jar is created in `build/libs/`.
+Build: Actions tab -> latest run -> Artifacts -> BaseFinder-mod.
+Data: .minecraft/config/basefinder/ (map .dat, readable results .txt) and config/basefinder.properties

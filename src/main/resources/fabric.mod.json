@@ -3,7 +3,7 @@
   "id": "basefinder",
   "version": "${version}",
   "name": "Base Finder",
-  "description": "Finds stashes and bases by scanning loaded chunks. Right Shift opens the GUI.",
+  "description": "Finds stashes and bases. Right Shift opens the GUI.",
   "authors": [],
   "license": "MIT",
   "environment": "client",
