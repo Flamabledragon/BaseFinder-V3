@@ -62,7 +62,7 @@ public final class Config {
         d("st.on", 0); d("st.chat", 1); d("st.hud", 1); d("st.gui", 1);
         // World / extra modules (all off by default)
         d("am.enabled", 0); d("am.radius", 6);
-        d("bf.nomine", 1); d("bf.nonat", 1); d("bf.nofarm", 1);
+        d("bf.nomine", 1); d("bf.mincont", 10); d("bf.spawneronly", 0); d("hud.stashlist", 1); d("bf.nonat", 1); d("bf.nofarm", 1);
         d("fv.enabled", 0);
         d("sf.enabled", 0); d("sf.radius", 8); d("sf.trial", 1); d("sf.shrieker", 1);
         d("hud.totems", 0); d("hud.mapstats", 0);

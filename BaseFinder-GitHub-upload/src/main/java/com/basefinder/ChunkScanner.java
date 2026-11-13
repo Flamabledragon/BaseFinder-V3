@@ -373,9 +373,10 @@ public class ChunkScanner {
 
             c.finish(px, pz);
             if (Config.on("bf.nofarm") && c.kind().equals("FARM")) continue;
-            boolean spawnerOk = Config.findSpawners && c.spawners > 0
-                    && (Config.loneSpawners || c.spawners >= 2 || c.score - 3.0 * c.spawners >= 2);
-            if (c.score >= Config.threshold || spawnerOk) out.add(c);
+            // A result must look like storage: enough containers AND enough score. A spawner alone is not a stash.
+            boolean spawnerOk = Config.findSpawners && Config.on("bf.spawneronly") && c.spawners > 0;
+            boolean stash = c.containers >= Config.v("bf.mincont") && c.score >= Config.threshold;
+            if (stash || spawnerOk) out.add(c);
         }
 
         if (Config.sortByDistance) out.sort(Comparator.comparingDouble((Cluster c) -> c.dist));

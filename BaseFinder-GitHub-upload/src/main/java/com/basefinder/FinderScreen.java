@@ -48,7 +48,7 @@ public class FinderScreen extends Screen {
     }
 
     // persistent UI state
-    private static Tab tab = Tab.MODULES;
+    private static Tab tab = Tab.RESULTS; // opens straight on the stash list
     private static int side = 0;
     private static boolean enabledOnly = false;
     private static String selectedId = "sound";
@@ -451,7 +451,7 @@ public class FinderScreen extends Screen {
         // footer
         int active = 0;
         for (Modules.Module m : Modules.ALL) if (m.on()) active++;
-        text(g, "BASEFINDER  /  RELEASE 2.6", px + 12, py + H - 15, DIM);
+        text(g, "BASEFINDER  /  RELEASE 2.7", px + 12, py + H - 15, DIM);
         textR(g, active + " modules active   |   " + ChunkScanner.clusters.size() + " stash(es)", px + W - 12,
                 py + H - 15, DIM);
 
@@ -631,7 +631,7 @@ public class FinderScreen extends Screen {
         }
 
         if (view.isEmpty()) {
-            text(g, "Nothing found yet. Fly around, or lower the min stash score.", ctX, bodyY + 36, DIM);
+            text(g, "Nothing found yet. Turn Base Finder on (Modules tab) and move around, or lower Min containers.", ctX, bodyY + 36, DIM);
             return;
         }
 
@@ -645,7 +645,7 @@ public class FinderScreen extends Screen {
             border(g, ctX, y, ww, 19, LINE);
             rect(g, ctX, y + 2, 2, 15, acc);
             text(g, "#" + (idx + 1) + "  " + Config.xyzPlain(c.x, c.y, c.z, "st.gui"), ctX + 8, y + 6, TEXT);
-            String stats = c.tier() + "  " + (int) c.score + " pts  " + (int) c.dist + "m";
+            String stats = c.tier() + " " + c.kind() + "  " + c.containers + " cont  " + (int) c.dist + "m";
             textR(g, stats, right - 90, y + 6, DIM);
             smallButton(g, mx, my, right - 84, y + 2, "COPY", acc);
             smallButton(g, mx, my, right - 42, y + 2, "HIDE", acc);

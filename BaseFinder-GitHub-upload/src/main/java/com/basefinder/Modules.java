@@ -189,7 +189,7 @@ public final class Modules {
                 header("Detect"),
                 tog("Scan containers", () -> Config.findStorage, v -> Config.findStorage = v, true),
                 tog("Scan spawners", () -> Config.findSpawners, v -> Config.findSpawners = v, true),
-                tog("Lone spawners count", () -> Config.loneSpawners, v -> Config.loneSpawners = v, true),
+                tog("Show spawner-only results", () -> Config.on("bf.spawneronly"), v -> Config.set("bf.spawneronly", v ? 1 : 0), true),
                 tog("Ignore mineshafts", () -> Config.on("bf.nomine"), v -> Config.set("bf.nomine", v ? 1 : 0), true),
                 tog("Ignore natural structures", () -> Config.on("bf.nonat"), v -> Config.set("bf.nonat", v ? 1 : 0), true),
                 tog("Ignore farms", () -> Config.on("bf.nofarm"), v -> Config.set("bf.nofarm", v ? 1 : 0), true),
@@ -197,6 +197,8 @@ public final class Modules {
                 tog("Chat alerts", () -> Config.autoAlert, v -> Config.autoAlert = v, false),
                 header("Tuning"),
                 sliderF("Scan radius", () -> Config.radius, v -> Config.radius = v, 4, 64, 4, v -> v + " chunks", true),
+                sliderF("Min containers", () -> Config.v("bf.mincont"), v -> Config.set("bf.mincont", v), 1, 100, 1,
+                        String::valueOf, true),
                 sliderF("Min stash score", () -> Config.threshold, v -> Config.threshold = v, 2, 100, 2,
                         String::valueOf, true),
                 header("Actions"),
@@ -290,6 +292,10 @@ public final class Modules {
                 slider("Scan radius", "sf.radius", 2, 16, 1, v -> v + " chunks"),
                 key("Trial spawners and vaults", "sf.trial"),
                 key("Sculk shriekers", "sf.shrieker"));
+
+        add("stashlist", "Stash List HUD", Cat.VISUAL,
+                "Shows the top 3 detected stashes on screen, no need to open the menu.",
+                key("Enabled", "hud.stashlist"));
 
         add("totemhud", "Totem Counter", Cat.VISUAL,
                 "Shows how many totems of undying you carry.",

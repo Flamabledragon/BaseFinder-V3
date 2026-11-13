@@ -67,6 +67,19 @@ public final class Hud {
             }
         }
 
+        if (Config.on("hud.stashlist") && Config.on("bf.enabled")) {
+            int shown = 0;
+            List<ChunkScanner.Cluster> byScore = new ArrayList<>(ChunkScanner.clusters);
+            byScore.sort(java.util.Comparator.comparingDouble((ChunkScanner.Cluster c) -> -c.score));
+            for (ChunkScanner.Cluster c : byScore) {
+                if (shown++ >= 3) break;
+                double dx = c.x - mc.player.getX(), dz = c.z - mc.player.getZ();
+                out.add(c.tier() + " " + c.kind() + "  " + (int) Math.sqrt(dx * dx + dz * dz) + "m "
+                        + SoundDetector.compass(dx, dz) + "  " + c.containers + " containers"
+                        + (hideHud ? "" : "  (" + c.x + " " + c.y + " " + c.z + ")"));
+            }
+        }
+
         if (Config.on("hud.totems")) {
             int n = 0;
             var inv = mc.player.getInventory();
