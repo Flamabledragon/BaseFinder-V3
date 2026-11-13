@@ -1,20 +1,31 @@
+
 name: build
+
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           java-version: 21
           distribution: temurin
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.2.1
-      - run: gradle build --no-daemon
-      - uses: actions/upload-artifact@v4
+
+      - name: Build BaseFinder
+        working-directory: ./BaseFinder-GitHub-upload
+        run: gradle build --no-daemon
+
+      - name: Upload BaseFinder JAR
+        uses: actions/upload-artifact@v4
         with:
           name: BaseFinder-mod
-          path: build/libs/*.jar
+          path: BaseFinder-GitHub-upload/build/libs/*.jar
+          if-no-files-found: error
