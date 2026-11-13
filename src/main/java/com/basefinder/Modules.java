@@ -16,7 +16,7 @@ public final class Modules {
     private Modules() {}
 
     public enum Cat {
-        VISUAL("Visual"), DETECTION("Detection"), UTILITY("Utility"), STREAMING("Streaming");
+        VISUAL("Visual"), DETECTION("Detection"), WORLD("World"), UTILITY("Utility"), STREAMING("Streaming");
         public final String label;
         Cat(String label) { this.label = label; }
     }
@@ -254,6 +254,28 @@ public final class Modules {
                 "Shows distance and direction to the closest stash.",
                 key("Enabled", "hud.nearest"),
                 header("Hidden coordinates in Streamer Mode."));
+
+        add("amethyst", "Amethyst Scanner", Cat.WORLD,
+                "Finds budding amethyst (geodes) in loaded chunks and boxes it through walls.",
+                key("Enabled", "am.enabled"),
+                slider("Scan radius", "am.radius", 2, 12, 1, v -> v + " chunks"),
+                espOpacity());
+
+        add("tracers", "Stash Tracer", Cat.VISUAL,
+                "Dotted line from you to the nearest detected stash.",
+                key("Enabled", "tr.enabled"),
+                slider("Line length", "tr.dots", 10, 60, 5, v -> v + " dots"),
+                header("Needs Base Finder enabled."));
+
+        add("lightdebug", "Light Level HUD", Cat.VISUAL,
+                "Shows block and sky light at your feet and whether mobs can spawn there.",
+                key("Enabled", "hud.light"));
+
+        add("playerradar", "Player Radar", Cat.DETECTION,
+                "Lists nearby players with distance and direction on the HUD.",
+                key("Enabled", "hud.players"),
+                slider("Range", "hud.prange", 32, 256, 32, v -> v + " blocks"),
+                slider("Max names", "hud.pcount", 1, 10, 1, String::valueOf));
 
         add("memory", "Map Memory", Cat.UTILITY,
                 "Remembers scanned chunks per server and dimension across restarts.",

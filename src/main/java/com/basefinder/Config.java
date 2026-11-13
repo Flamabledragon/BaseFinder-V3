@@ -50,7 +50,7 @@ public final class Config {
     private static void d(String k, int v) { DEFAULTS.put(k, v); }
 
     static {
-        d("bf.enabled", 1);
+        d("bf.enabled", 0); // everything starts OFF, you turn on what you want
         // Sound Detector
         d("sd.enabled", 0); d("sd.chat", 1); d("sd.markers", 1); d("sd.duration", 17); d("sd.cards", 3);
         d("sd.cooldown", 50); d("sd.menus", 1); d("sd.hud", 1); d("sd.scale", 80); d("sd.range", 48);
@@ -60,6 +60,10 @@ public final class Config {
         d("hud.master", 1); d("hud.coords", 0); d("hud.nearest", 0);
         // Streaming
         d("st.on", 0); d("st.chat", 1); d("st.hud", 1); d("st.gui", 1);
+        // World / extra modules (all off by default)
+        d("am.enabled", 0); d("am.radius", 6);
+        d("tr.enabled", 0); d("tr.dots", 30);
+        d("hud.light", 0); d("hud.players", 0); d("hud.prange", 128); d("hud.pcount", 5);
         // Utility
         d("ut.memory", 1);
         // Appearance

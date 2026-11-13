@@ -98,7 +98,9 @@ public final class EspRenderer {
         boolean boxes = bf && (Config.espStorage || Config.espSpawners) && !targets.isEmpty();
         boolean zones = bf && Config.chunkHighlight && !chunks.isEmpty();
         List<SoundDetector.Marker> marks = SoundDetector.markers();
-        if (!boxes && !zones && marks.isEmpty()) return;
+        List<net.minecraft.core.BlockPos> geodes = Config.on("am.enabled") ? WorldScanner.amethyst : List.of();
+        boolean tracer = bf && Config.on("tr.enabled") && !ChunkScanner.clusters.isEmpty();
+        if (!boxes && !zones && marks.isEmpty() && geodes.isEmpty() && !tracer) return;
 
         PoseStack matrices = context.matrices();
         Vec3 camera = context.worldState().cameraRenderState.pos;
@@ -142,6 +144,50 @@ public final class EspRenderer {
                         e.cx * 16f + 16f, e.maxY + 2f, e.cz * 16f + 16f,
                         0.71f, 0.36f, 1.0f, alpha * 0.35f);
                 count++;
+            }
+        }
+
+        // Amethyst Scanner: purple boxes on budding amethyst
+        if (!geodes.isEmpty()) {
+            for (net.minecraft.core.BlockPos bp : geodes) {
+                if (count >= MAX_BOXES) break;
+                double dx = bp.getX() + 0.5 - camera.x, dy = bp.getY() + 0.5 - camera.y, dz = bp.getZ() + 0.5 - camera.z;
+                if (dx * dx + dy * dy + dz * dz > range2) continue;
+                ensureBuffer();
+                float e = 0.03f;
+                renderFilledBox(pose, buffer,
+                        bp.getX() - e, bp.getY() - e, bp.getZ() - e,
+                        bp.getX() + 1f + e, bp.getY() + 1f + e, bp.getZ() + 1f + e,
+                        0.80f, 0.45f, 1.0f, Math.min(1f, alpha + 0.2f));
+                count++;
+            }
+        }
+
+        // Stash Tracer: dotted line toward the nearest stash
+        if (tracer) {
+            ChunkScanner.Cluster best = null;
+            double bd = Double.MAX_VALUE;
+            for (ChunkScanner.Cluster c : ChunkScanner.clusters) {
+                double dx = c.x - camera.x, dz = c.z - camera.z;
+                double d = dx * dx + dz * dz;
+                if (d < bd) { bd = d; best = c; }
+            }
+            if (best != null) {
+                Vec3 look = mc.player.getLookAngle();
+                double sx = camera.x + look.x * 1.5, sy = camera.y - 0.35 + look.y * 1.5, sz = camera.z + look.z * 1.5;
+                double tx = best.x + 0.5, ty = best.y + 0.5, tz = best.z + 0.5;
+                double len = Math.sqrt((tx - sx) * (tx - sx) + (ty - sy) * (ty - sy) + (tz - sz) * (tz - sz));
+                int dots = Config.v("tr.dots");
+                double step = 2.0;
+                for (int i = 0; i < dots && i * step < len && count < MAX_BOXES; i++) {
+                    double t = (i * step) / len;
+                    float px = (float) (sx + (tx - sx) * t), py = (float) (sy + (ty - sy) * t), pz = (float) (sz + (tz - sz) * t);
+                    ensureBuffer();
+                    float h = 0.07f;
+                    renderFilledBox(pose, buffer, px - h, py - h, pz - h, px + h, py + h, pz + h,
+                            1.0f, 0.36f, 0.54f, 0.9f);
+                    count++;
+                }
             }
         }
 

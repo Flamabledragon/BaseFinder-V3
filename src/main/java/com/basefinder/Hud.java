@@ -67,6 +67,29 @@ public final class Hud {
             }
         }
 
+        if (Config.on("hud.light")) {
+            var pos = mc.player.blockPosition();
+            int bl = mc.level.getBrightness(net.minecraft.world.level.LightLayer.BLOCK, pos);
+            int sl = mc.level.getBrightness(net.minecraft.world.level.LightLayer.SKY, pos);
+            out.add("Light: block " + bl + "  sky " + sl + (bl == 0 ? "  (mobs can spawn)" : ""));
+        }
+
+        if (Config.on("hud.players")) {
+            double range = Config.v("hud.prange");
+            List<net.minecraft.world.entity.player.Player> near = new ArrayList<>();
+            for (var pl : mc.level.players()) {
+                if (pl != mc.player && pl.distanceTo(mc.player) <= range) near.add(pl);
+            }
+            near.sort(java.util.Comparator.comparingDouble(pl -> pl.distanceTo(mc.player)));
+            int n = 0;
+            for (var pl : near) {
+                if (n++ >= Config.v("hud.pcount")) break;
+                double dx = pl.getX() - mc.player.getX(), dz = pl.getZ() - mc.player.getZ();
+                out.add(pl.getName().getString() + "  " + (int) pl.distanceTo(mc.player) + "m "
+                        + SoundDetector.compass(dx, dz) + "  " + relative(mc, dx, dz));
+            }
+        }
+
         int y = 6;
         for (String line : out) {
             int w = mc.font.width(line);

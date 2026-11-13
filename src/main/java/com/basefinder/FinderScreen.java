@@ -36,7 +36,16 @@ public class FinderScreen extends Screen {
     private static final int DIM = 0xFF8A9099;
     private static final int OFF = 0xFF3A3F47;
 
-    private static final String[] SIDE = {"All modules", "Visual", "Detection", "Utility", "Streaming", "Favorites"};
+    private static final String[] SIDE = buildSide();
+
+    private static String[] buildSide() {
+        Modules.Cat[] cats = Modules.Cat.values();
+        String[] out = new String[cats.length + 2];
+        out[0] = "All modules";
+        for (int i = 0; i < cats.length; i++) out[i + 1] = cats[i].label;
+        out[out.length - 1] = "Favorites";
+        return out;
+    }
 
     // persistent UI state
     private static Tab tab = Tab.MODULES;
@@ -290,8 +299,8 @@ public class FinderScreen extends Screen {
         List<Modules.Module> out = new ArrayList<>();
         String q = searchText.toLowerCase();
         for (Modules.Module m : Modules.ALL) {
-            if (side >= 1 && side <= 4 && m.cat != Modules.Cat.values()[side - 1]) continue;
-            if (side == 5 && !Config.favorites.contains(m.id)) continue;
+            if (side >= 1 && side <= Modules.Cat.values().length && m.cat != Modules.Cat.values()[side - 1]) continue;
+            if (side == SIDE.length - 1 && !Config.favorites.contains(m.id)) continue;
             if (enabledOnly && !m.on()) continue;
             if (!q.isEmpty() && !m.name.toLowerCase().contains(q)) continue;
             out.add(m);

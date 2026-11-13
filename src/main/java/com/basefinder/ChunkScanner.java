@@ -42,6 +42,7 @@ public class ChunkScanner {
         public int cx, cz;
         public double score;
         public int containers, shulkers, spawners, other, stacked;
+        public int machines, signs; // hoppers/furnaces/dispensers, signs
         public boolean bell; // village marker
         public int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
         public final List<Target> targets = new ArrayList<>();
@@ -50,7 +51,7 @@ public class ChunkScanner {
     public static class Cluster {
         public final List<Entry> chunks = new ArrayList<>();
         public double score;
-        public int containers, shulkers, spawners, stacked;
+        public int containers, shulkers, spawners, stacked, machines, signs;
         public int x, y, z;
         public double dist;
         private int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
@@ -62,6 +63,8 @@ public class ChunkScanner {
             shulkers += e.shulkers;
             spawners += e.spawners;
             stacked += e.stacked;
+            machines += e.machines;
+            signs += e.signs;
             minY = Math.min(minY, e.minY);
             maxY = Math.max(maxY, e.maxY);
         }
@@ -74,6 +77,14 @@ public class ChunkScanner {
             y = (minY + maxY) / 2;
             double dx = x - px, dz = z - pz;
             dist = Math.sqrt(dx * dx + dz * dz);
+        }
+
+        /** What this looks like: STASH, FARM, BASE or SPAWNER. */
+        public String kind() {
+            if (containers == 0 && spawners > 0) return "SPAWNER";
+            if (machines >= 10 && machines > containers * 2) return "FARM";
+            if (signs >= 2 || (machines >= 4 && containers >= 4)) return "BASE";
+            return "STASH";
         }
 
         /** Rough size label. */
@@ -232,10 +243,12 @@ public class ChunkScanner {
             } else if (b == Blocks.HOPPER || b == Blocks.FURNACE || b == Blocks.BLAST_FURNACE
                     || b == Blocks.SMOKER || b == Blocks.DISPENSER || b == Blocks.DROPPER) {
                 e.other++;
+                e.machines++;
                 w = 0.5;
             } else if (be instanceof SignBlockEntity || b == Blocks.BREWING_STAND
                     || b == Blocks.ENCHANTING_TABLE || b == Blocks.JUKEBOX) {
                 e.other++; // small sign of player activity
+                if (be instanceof SignBlockEntity) e.signs++;
                 w = 0.25;
             } else {
                 continue;
@@ -328,7 +341,7 @@ public class ChunkScanner {
             for (Entry e : c.chunks) alerted.add(key(e.cx, e.cz));
             found = true;
             if (Config.autoAlert && mc.player != null) {
-                mc.player.displayClientMessage(Component.literal("[BaseFinder] " + c.tier() + " stash at "
+                mc.player.displayClientMessage(Component.literal("[BaseFinder] " + c.tier() + " " + c.kind().toLowerCase() + " at "
                         + Config.xyz(c.x, c.y, c.z, "st.chat") + " (score " + (int) c.score + ", " + c.containers
                         + " containers, " + c.spawners + " spawners, " + (int) c.dist + "m away)"), false);
             }
@@ -361,7 +374,7 @@ public class ChunkScanner {
             StringBuilder sb = new StringBuilder("# BaseFinder results: " + currentKey + "\n");
             for (Cluster c : clusters) {
                 sb.append("X ").append(c.x).append(" Y ").append(c.y).append(" Z ").append(c.z)
-                        .append(" | ").append(c.tier())
+                        .append(" | ").append(c.tier()).append(" ").append(c.kind())
                         .append(" | score ").append((int) c.score)
                         .append(" | containers ").append(c.containers)
                         .append(" | shulkers ").append(c.shulkers)
@@ -393,6 +406,7 @@ public class ChunkScanner {
                         .append(' ').append(e.spawners).append(' ').append(e.other)
                         .append(' ').append(e.stacked).append(' ').append(e.minY).append(' ').append(e.maxY)
                         .append(' ').append(e.bell ? 1 : 0).append(' ');
+                sb.append(e.machines).append(' ').append(e.signs).append(' ');
                 if (e.targets.isEmpty()) sb.append('-');
                 else {
                     boolean first = true;
@@ -432,8 +446,14 @@ public class ChunkScanner {
                         e.minY = Integer.parseInt(p[9]);
                         e.maxY = Integer.parseInt(p[10]);
                         e.bell = p[11].equals("1");
-                        if (p.length > 12 && !p[12].equals("-")) {
-                            for (String t : p[12].split(";")) {
+                        boolean newFmt = p.length > 14 && p[12].matches("\\d+") && p[13].matches("\\d+");
+                        int tIdx = newFmt ? 14 : 12;
+                        if (newFmt) {
+                            e.machines = Integer.parseInt(p[12]);
+                            e.signs = Integer.parseInt(p[13]);
+                        }
+                        if (p.length > tIdx && !p[tIdx].equals("-")) {
+                            for (String t : p[tIdx].split(";")) {
                                 String[] q = t.split(",");
                                 e.targets.add(new Target(Integer.parseInt(q[0]), Integer.parseInt(q[1]),
                                         Integer.parseInt(q[2]), Integer.parseInt(q[3])));
