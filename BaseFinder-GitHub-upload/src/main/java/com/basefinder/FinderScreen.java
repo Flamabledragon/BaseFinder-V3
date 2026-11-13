@@ -27,14 +27,14 @@ public class FinderScreen extends Screen {
     private record CardPos(Modules.Module m, int x, int y) {}
 
     // Neutral dark palette (the accent comes from the chosen theme)
-    private static final int CARD = 0xFF16181C;
-    private static final int CARD_HOVER = 0xFF1D2025;
-    private static final int PANEL_EDGE = 0xFF25282D;
-    private static final int SIDEBAR = 0xFF121418;
-    private static final int LINE = 0xFF1E2126;
-    private static final int TEXT = 0xFFD5D8DD;
-    private static final int DIM = 0xFF737A84;
-    private static final int OFF = 0xFF34383F;
+    private static final int CARD = 0xFF111833;
+    private static final int CARD_HOVER = 0xFF18214A;
+    private static final int PANEL_EDGE = 0xFF2A3566;
+    private static final int SIDEBAR = 0xFF0B1022;
+    private static final int LINE = 0xFF222B55;
+    private static final int TEXT = 0xFFE6E9F5;
+    private static final int DIM = 0xFF7F88B0;
+    private static final int OFF = 0xFF2C3563;
 
     private static final String[] SIDE = buildSide();
 
@@ -60,7 +60,7 @@ public class FinderScreen extends Screen {
     private int W, H, px, py, sbX, sbW, ctX, ctW, rtX, rtW, bodyY, bodyB;
     private int[] tabX, tabW;
     private int cols, cardW, rowsVisible, gridY, setY0, perPage;
-    private final int cardH = 38, pitch = 44;
+    private final int cardH = 32, pitch = 36;
 
     private int seenVersion;
     private boolean searchDirty = false;
@@ -140,7 +140,7 @@ public class FinderScreen extends Screen {
 
     private void initModules() {
         visible = filtered();
-        cols = ctW >= 236 ? 2 : 1;
+        cols = 1;
         cardW = (ctW - (cols - 1) * 8) / cols;
         gridY = bodyY + 66;
         rowsVisible = Math.max(1, (bodyB - gridY + 6) / pitch);
@@ -181,8 +181,8 @@ public class FinderScreen extends Screen {
                 final Modules.Module m = visible.get(idx);
                 int cx = ctX + c * (cardW + 8), cy = gridY + r * pitch;
                 cardPos.add(new CardPos(m, cx, cy));
-                hit(cx + cardW - 38, cy + 4, 34, 18, () -> { m.flip(); });
-                hit(cx + cardW - 20, cy + 22, 16, 14, () -> {
+                hit(cx + cardW - 38, cy + (cardH - 18) / 2, 34, 18, () -> { m.flip(); });
+                hit(cx + cardW - 58, cy + (cardH - 14) / 2, 16, 14, () -> {
                     if (!Config.favorites.remove(m.id)) Config.favorites.add(m.id);
                     Config.save();
                     this.rebuildWidgets();
@@ -408,7 +408,7 @@ public class FinderScreen extends Screen {
 
     private void pill(GuiGraphics g, int x, int y, boolean on) {
         rect(g, x, y, 24, 10, on ? accent() : OFF);
-        rect(g, on ? x + 15 : x + 1, y + 1, 8, 8, 0xFFD5D8DD);
+        rect(g, on ? x + 15 : x + 1, y + 1, 8, 8, 0xFFE6E9F5);
     }
 
     private double angle() {
@@ -424,20 +424,20 @@ public class FinderScreen extends Screen {
 
         // window
         rect(g, px - 1, py - 1, W + 2, H + 2, PANEL_EDGE);
-        rect(g, px, py, W, H, withAlpha(0x101216, bgAlpha));
+        rect(g, px, py, W, H, withAlpha(0x0A0F22, bgAlpha));
 
         // top bar
-        rect(g, px, py, W, 38, withAlpha(0x15181D, bgAlpha));
+        rect(g, px, py, W, 38, withAlpha(0x0E1430, bgAlpha));
         rect(g, px, py + 38, W, 1, PANEL_EDGE);
         rect(g, px + 18, py + 14, 12, 12, acc);
-        rect(g, px + 21, py + 17, 6, 6, 0xFF101216);
+        rect(g, px + 21, py + 17, 6, 6, 0xFF0A0F22);
         text(g, "BASEFINDER", px + 44, py + 10, acc);
         text(g, "MODULE CONTROL", px + 44, py + 21, TEXT);
         Tab[] tabs = Tab.values();
         for (int i = 0; i < tabs.length; i++) {
             boolean active = tabs[i] == tab;
             boolean hover = over(mx, my, tabX[i], py + 8, tabW[i], 24);
-            if (hover && !active) rect(g, tabX[i], py + 8, tabW[i], 24, 0xFF1C2026);
+            if (hover && !active) rect(g, tabX[i], py + 8, tabW[i], 24, 0xFF182044);
             textC(g, tabs[i].label, tabX[i], tabW[i], py + 16, active ? TEXT : DIM);
             if (active) rect(g, tabX[i] + 6, py + 31, tabW[i] - 12, 2, acc);
         }
@@ -451,7 +451,7 @@ public class FinderScreen extends Screen {
         // footer
         int active = 0;
         for (Modules.Module m : Modules.ALL) if (m.on()) active++;
-        text(g, "BASEFINDER  /  YOUR WORKSPACE", px + 12, py + H - 15, DIM);
+        text(g, "BASEFINDER  /  RELEASE 2.6", px + 12, py + H - 15, DIM);
         textR(g, active + " modules active   |   " + ChunkScanner.clusters.size() + " stash(es)", px + W - 12,
                 py + H - 15, DIM);
 
@@ -464,27 +464,31 @@ public class FinderScreen extends Screen {
 
     private void drawSidebar(GuiGraphics g, int mx, int my, int acc) {
         rect(g, sbX, bodyY, sbW, bodyB - bodyY, SIDEBAR);
-        text(g, "WORKSPACE", sbX + 10, bodyY + 5, acc);
+        text(g, "MODULES", sbX + 10, bodyY + 5, DIM);
         for (int i = 0; i < SIDE.length; i++) {
             int y = bodyY + 18 + i * 22;
             boolean act = tab == Tab.MODULES && side == i;
             boolean hv = over(mx, my, sbX + 4, y, sbW - 8, 20);
-            if (act) rect(g, sbX + 4, y, sbW - 8, 20, 0xFF1F242B);
-            else if (hv) rect(g, sbX + 4, y, sbW - 8, 20, 0xFF191D22);
+            if (act) rect(g, sbX + 4, y, sbW - 8, 20, 0xFF18214A);
+            else if (hv) rect(g, sbX + 4, y, sbW - 8, 20, 0xFF131A38);
             if (act) rect(g, sbX + 4, y + 2, 2, 16, acc);
-            rect(g, sbX + 14, y + 7, 6, 6, act ? acc : OFF);
-            text(g, SIDE[i], sbX + 26, y + 6, act ? TEXT : DIM);
+            text(g, SIDE[i], sbX + 14, y + 6, act ? TEXT : DIM);
+            int n = 0;
+            for (Modules.Module m : Modules.ALL) {
+                if (i == 0 || (i == SIDE.length - 1 ? Config.favorites.contains(m.id) : m.cat == Modules.Cat.values()[i - 1])) n++;
+            }
+            textR(g, String.valueOf(n), sbX + sbW - 10, y + 6, act ? acc : OFF);
         }
         int cy = bodyB - 20;
         rect(g, sbX + 10, cy + 3, 9, 9, enabledOnly ? acc : OFF);
-        if (enabledOnly) rect(g, sbX + 12, cy + 5, 5, 5, 0xFF101216);
+        if (enabledOnly) rect(g, sbX + 12, cy + 5, 5, 5, 0xFF0A0F22);
         text(g, "Enabled only", sbX + 24, cy + 4, DIM);
     }
 
     private void arrows(GuiGraphics g, int mx, int my, int x, int y) {
         for (int i = 0; i < 2; i++) {
             int ax = x + i * 16;
-            rect(g, ax, y, 14, 14, over(mx, my, ax, y, 14, 14) ? 0xFF2C3139 : 0xFF1E2228);
+            rect(g, ax, y, 14, 14, over(mx, my, ax, y, 14, 14) ? 0xFF222C5A : 0xFF161E3F);
             textC(g, i == 0 ? "^" : "v", ax, 14, y + 3, DIM);
         }
     }
@@ -497,15 +501,17 @@ public class FinderScreen extends Screen {
             if (over(mx, my, c.x(), c.y(), cardW, cardH)) hoverDesc = c.m().desc;
         }
 
-        // banner with the rotating block
+        // header: "<Category> Modules", counts
+        int total = 0, enabled = 0;
+        for (Modules.Module m : visible) { total++; if (m.on()) enabled++; }
         rect(g, ctX, bodyY, ctW, 40, CARD);
         border(g, ctX, bodyY, ctW, 40, LINE);
-        text(g, "YOUR MODULE DESK", ctX + 10, bodyY + 5, acc);
-        text(g, SIDE[side], ctX + 10, bodyY + 16, TEXT);
-        String sub = hoverDesc != null ? hoverDesc : "Hover to explore. Select to configure.";
-        int maxW = ctW - 80;
+        text(g, SIDE[side] + " Modules", ctX + 10, bodyY + 6, acc);
+        text(g, total + " modules  -  " + enabled + " enabled", ctX + 10, bodyY + 18, DIM);
+        String sub = hoverDesc != null ? hoverDesc : "Hover a module to read what it does.";
+        int maxW = ctW - 20;
         while (this.font.width(sub) > maxW && sub.length() > 4) sub = sub.substring(0, sub.length() - 4) + "...";
-        text(g, sub, ctX + 10, bodyY + 28, DIM);
+        text(g, sub, ctX + 10, bodyY + 29, DIM);
 
         // search bar
         rect(g, ctX, bodyY + 44, ctW, 16, CARD);
@@ -527,11 +533,15 @@ public class FinderScreen extends Screen {
             rect(g, x, y, cardW, cardH, over(mx, my, x, y, cardW, cardH) ? CARD_HOVER : CARD);
             border(g, x, y, cardW, cardH, sel ? withAlpha(acc, 0xB0) : LINE);
             if (on) rect(g, x, y + 3, 2, cardH - 6, acc);
-            text(g, m.name, x + 10, y + 7, TEXT);
-            text(g, on ? "ACTIVE" : "INACTIVE", x + 10, y + 21, on ? acc : DIM);
-            pill(g, x + cardW - 32, y + 7, on);
+            text(g, m.name, x + 10, y + 6, TEXT);
+            String d = m.desc;
+            int dw = cardW - 92;
+            while (this.font.width(d) > dw && d.length() > 4) d = d.substring(0, d.length() - 4) + "...";
+            text(g, d, x + 10, y + 18, DIM);
+            text(g, ">", x + cardW - 76, y + (cardH - 8) / 2, DIM);
             boolean fav = Config.favorites.contains(m.id);
-            text(g, "*", x + cardW - 14, y + 24, fav ? 0xFFFFC04D : OFF);
+            text(g, "*", x + cardW - 54, y + (cardH - 8) / 2, fav ? 0xFFFFC04D : OFF);
+            pill(g, x + cardW - 32, y + (cardH - 10) / 2, on);
         }
 
         drawRightPanel(g, mx, my, acc);
@@ -568,28 +578,28 @@ public class FinderScreen extends Screen {
                 text(g, s.label, x, y + 6, TEXT);
                 String v = s.display();
                 int bw = this.font.width(v) + 10;
-                rect(g, x + w - bw, y + 2, bw, 15, over(mx, my, x, y, w, p.h()) ? 0xFF2C3139 : 0xFF22262C);
+                rect(g, x + w - bw, y + 2, bw, 15, over(mx, my, x, y, w, p.h()) ? 0xFF222C5A : 0xFF1A2347);
                 textC(g, v, x + w - bw, bw, y + 6, acc);
                 rect(g, x, y + p.h() - 1, w, 1, LINE);
             }
             case BUTTON -> {
                 boolean hv = over(mx, my, x, y, w, p.h());
-                rect(g, x, y, w, p.h() - 2, hv ? 0xFF2C3139 : 0xFF22262C);
+                rect(g, x, y, w, p.h() - 2, hv ? 0xFF222C5A : 0xFF1A2347);
                 textC(g, s.label, x, w, y + 6, TEXT);
             }
             case SLIDER -> {
                 text(g, s.label, x, y + 2, TEXT);
                 String v = s.display();
                 int bw = this.font.width(v) + 10;
-                rect(g, x + w - bw, y, bw, 12, 0xFF22262C);
+                rect(g, x + w - bw, y, bw, 12, 0xFF1A2347);
                 textC(g, v, x + w - bw, bw, y + 2, DIM);
                 double f = (s.get.getAsInt() - s.min) / (double) Math.max(1, s.max - s.min);
                 f = Math.max(0, Math.min(1, f));
-                rect(g, x, y + 19, w, 3, 0xFF2A2E35);
+                rect(g, x, y + 19, w, 3, 0xFF222B55);
                 rect(g, x, y + 19, (int) (w * f), 3, acc);
                 int kx = x + (int) (w * f), ky = y + 20;
                 int[] half = {1, 2, 3, 3, 3, 2, 1};
-                for (int i = 0; i < 7; i++) rect(g, kx - half[i], ky - 3 + i, half[i] * 2 + 1, 1, 0xFFD5D8DD);
+                for (int i = 0; i < 7; i++) rect(g, kx - half[i], ky - 3 + i, half[i] * 2 + 1, 1, 0xFFE6E9F5);
             }
         }
     }
@@ -615,7 +625,7 @@ public class FinderScreen extends Screen {
         int[] offs = {0, 82, 164, 246};
         for (int i = 0; i < 4; i++) {
             int x = ctX + offs[i];
-            rect(g, x, bodyY, 76, 20, over(mx, my, x, bodyY, 76, 20) ? 0xFF2C3139 : CARD);
+            rect(g, x, bodyY, 76, 20, over(mx, my, x, bodyY, 76, 20) ? 0xFF222C5A : CARD);
             border(g, x, bodyY, 76, 20, LINE);
             textC(g, labels[i], x, 76, bodyY + 6, TEXT);
         }
@@ -650,8 +660,8 @@ public class FinderScreen extends Screen {
     private void smallButton(GuiGraphics g, int mx, int my, int x, int y, String label, int acc) {
         int w = label.length() == 1 ? 40 : 38;
         boolean hv = over(mx, my, x, y, w, 16);
-        rect(g, x, y, w, 16, hv ? withAlpha(acc, 0xC0) : 0xFF2A2E35);
-        textC(g, label, x, w, y + 4, hv ? 0xFF101216 : TEXT);
+        rect(g, x, y, w, 16, hv ? withAlpha(acc, 0xC0) : 0xFF222B55);
+        textC(g, label, x, w, y + 4, hv ? 0xFF0A0F22 : TEXT);
     }
 
     @Override

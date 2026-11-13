@@ -71,7 +71,7 @@ public final class Config {
         // Utility
         d("ut.memory", 1);
         // Appearance
-        d("ap.theme", 1); d("ap.cube", 1); d("ap.spin", 50); d("ap.opacity", 94); d("ap.style", 0);
+        d("ap.theme", 0); d("ap.cube", 1); d("ap.spin", 50); d("ap.opacity", 94); d("ap.style", 0);
 
         favorites.add("basefinder");
         favorites.add("sound");

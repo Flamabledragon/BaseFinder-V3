@@ -23,8 +23,8 @@ public final class Modules {
 
     public enum Type { TOGGLE, SLIDER, CHOICE, BUTTON, HEADER }
 
-    public static final String[] THEME_NAMES = {"Sage", "Teal", "Steel", "Sand", "Rose", "Lavender"};
-    public static final int[] THEMES = {0xFF7FB069, 0xFF5FA8A0, 0xFF6C8EBF, 0xFFC9A66B, 0xFFB07A8C, 0xFF9179B8};
+    public static final String[] THEME_NAMES = {"Ice", "Teal", "Sage", "Sand", "Rose", "Lavender"};
+    public static final int[] THEMES = {0xFF8FB3FF, 0xFF5FA8A0, 0xFF7FB069, 0xFFC9A66B, 0xFFB07A8C, 0xFF9179B8};
 
     // ---- deferred work, polled by the GUI tick ----
     private static int scanWait = -1, saveWait = -1;
