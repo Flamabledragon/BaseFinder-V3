@@ -66,6 +66,11 @@ public final class EspRenderer {
             {0.30f, 0.60f, 1.00f}  // beacon  - blue
     };
 
+    // info / warning / critical (see SoundDetector)
+    private static final float[][] MARKER_COLORS = {
+            {0.44f, 0.66f, 1.00f}, {1.00f, 0.75f, 0.30f}, {1.00f, 0.30f, 0.30f}
+    };
+
     public static void init() {
         WorldRenderEvents.BEFORE_TRANSLUCENT.register(EspRenderer::onRender);
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> close());
@@ -89,9 +94,13 @@ public final class EspRenderer {
 
         List<ChunkScanner.Target> targets = ChunkScanner.targets;
         List<ChunkScanner.Entry> chunks = ChunkScanner.highlight;
-        boolean boxes = (Config.espStorage || Config.espSpawners) && !targets.isEmpty();
-        boolean zones = Config.chunkHighlight && !chunks.isEmpty();
-        if (!boxes && !zones) return;
+        boolean bf = Config.on("bf.enabled");
+        boolean boxes = bf && (Config.espStorage || Config.espSpawners) && !targets.isEmpty();
+        boolean zones = bf && Config.chunkHighlight && !chunks.isEmpty();
+        List<SoundDetector.Marker> marks = SoundDetector.markers();
+        List<net.minecraft.core.BlockPos> geodes = Config.on("am.enabled") ? WorldScanner.amethyst : List.of();
+        boolean tracer = bf && Config.on("tr.enabled") && !ChunkScanner.clusters.isEmpty();
+        if (!boxes && !zones && marks.isEmpty() && geodes.isEmpty() && !tracer) return;
 
         PoseStack matrices = context.matrices();
         Vec3 camera = context.worldState().cameraRenderState.pos;
@@ -104,21 +113,6 @@ public final class EspRenderer {
         double range = Config.espRange;
         double range2 = range * range;
         int count = 0;
-
-        if (zones) {
-            double zr = (range + 48) * (range + 48);
-            for (ChunkScanner.Entry e : chunks) {
-                if (count >= MAX_BOXES) break;
-                double dx = (e.cx * 16 + 8) - camera.x, dz = (e.cz * 16 + 8) - camera.z;
-                if (dx * dx + dz * dz > zr) continue;
-                ensureBuffer();
-                renderFilledBox(pose, buffer,
-                        e.cx * 16f, e.minY - 1f, e.cz * 16f,
-                        e.cx * 16f + 16f, e.maxY + 2f, e.cz * 16f + 16f,
-                        0.71f, 0.36f, 1.0f, alpha * 0.35f);
-                count++;
-            }
-        }
 
         if (boxes) {
             for (ChunkScanner.Target t : targets) {
@@ -135,6 +129,88 @@ public final class EspRenderer {
                         t.x() + 1f + e, t.y() + 1f + e, t.z() + 1f + e,
                         c[0], c[1], c[2], Math.min(1f, alpha + 0.2f));
                 count++;
+            }
+        }
+
+        if (zones) {
+            double zr = (range + 48) * (range + 48);
+            for (ChunkScanner.Entry e : chunks) {
+                if (count >= MAX_BOXES) break;
+                double dx = (e.cx * 16 + 8) - camera.x, dz = (e.cz * 16 + 8) - camera.z;
+                if (dx * dx + dz * dz > zr) continue;
+                ensureBuffer();
+                renderFilledBox(pose, buffer,
+                        e.cx * 16f, e.minY - 1f, e.cz * 16f,
+                        e.cx * 16f + 16f, e.maxY + 2f, e.cz * 16f + 16f,
+                        0.71f, 0.36f, 1.0f, alpha * 0.35f);
+                count++;
+            }
+        }
+
+        // Amethyst Scanner: purple boxes on budding amethyst
+        if (!geodes.isEmpty()) {
+            for (net.minecraft.core.BlockPos bp : geodes) {
+                if (count >= MAX_BOXES) break;
+                double dx = bp.getX() + 0.5 - camera.x, dy = bp.getY() + 0.5 - camera.y, dz = bp.getZ() + 0.5 - camera.z;
+                if (dx * dx + dy * dy + dz * dz > range2) continue;
+                ensureBuffer();
+                float e = 0.03f;
+                renderFilledBox(pose, buffer,
+                        bp.getX() - e, bp.getY() - e, bp.getZ() - e,
+                        bp.getX() + 1f + e, bp.getY() + 1f + e, bp.getZ() + 1f + e,
+                        0.80f, 0.45f, 1.0f, Math.min(1f, alpha + 0.2f));
+                count++;
+            }
+        }
+
+        // Stash Tracer: dotted line toward the nearest stash
+        if (tracer) {
+            ChunkScanner.Cluster best = null;
+            double bd = Double.MAX_VALUE;
+            for (ChunkScanner.Cluster c : ChunkScanner.clusters) {
+                double dx = c.x - camera.x, dz = c.z - camera.z;
+                double d = dx * dx + dz * dz;
+                if (d < bd) { bd = d; best = c; }
+            }
+            if (best != null) {
+                Vec3 look = mc.player.getLookAngle();
+                double sx = camera.x + look.x * 1.5, sy = camera.y - 0.35 + look.y * 1.5, sz = camera.z + look.z * 1.5;
+                double tx = best.x + 0.5, ty = best.y + 0.5, tz = best.z + 0.5;
+                double len = Math.sqrt((tx - sx) * (tx - sx) + (ty - sy) * (ty - sy) + (tz - sz) * (tz - sz));
+                int dots = Config.v("tr.dots");
+                double step = 2.0;
+                for (int i = 0; i < dots && i * step < len && count < MAX_BOXES; i++) {
+                    double t = (i * step) / len;
+                    float px = (float) (sx + (tx - sx) * t), py = (float) (sy + (ty - sy) * t), pz = (float) (sz + (tz - sz) * t);
+                    ensureBuffer();
+                    float h = 0.07f;
+                    renderFilledBox(pose, buffer, px - h, py - h, pz - h, px + h, py + h, pz + h,
+                            1.0f, 0.36f, 0.54f, 0.9f);
+                    count++;
+                }
+            }
+        }
+
+        // Sound Detector markers: pulsing boxes where a sound came from
+        if (!marks.isEmpty()) {
+            long nowMs = System.currentTimeMillis();
+            for (SoundDetector.Marker mk : marks) {
+                double dx = mk.x() - camera.x, dy = mk.y() - camera.y, dz = mk.z() - camera.z;
+                if (dx * dx + dy * dy + dz * dz > 192 * 192) continue;
+                float remain = Math.max(0f, Math.min(1f, (mk.expires() - nowMs) / 1500f));
+                float pulse = 0.28f + 0.07f * (float) Math.sin(nowMs / 160.0);
+                float[] mc2 = MARKER_COLORS[Math.max(0, Math.min(2, mk.sev()))];
+                ensureBuffer();
+                renderFilledBox(pose, buffer,
+                        (float) mk.x() - pulse, (float) mk.y() - pulse, (float) mk.z() - pulse,
+                        (float) mk.x() + pulse, (float) mk.y() + pulse, (float) mk.z() + pulse,
+                        mc2[0], mc2[1], mc2[2], 0.75f * remain);
+                float halo = pulse + 0.35f;
+                renderFilledBox(pose, buffer,
+                        (float) mk.x() - halo, (float) mk.y() - halo, (float) mk.z() - halo,
+                        (float) mk.x() + halo, (float) mk.y() + halo, (float) mk.z() + halo,
+                        mc2[0], mc2[1], mc2[2], 0.18f * remain);
+                count += 2;
             }
         }
 

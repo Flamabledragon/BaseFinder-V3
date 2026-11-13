@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -28,7 +29,7 @@ import java.util.Set;
 
 /**
  * Scans loaded chunks, scores them by how stash-like they are, remembers every scored chunk
- * (flying around builds up a map) and groups neighbouring chunks into clusters.
+ * (also across restarts, per server + dimension) and groups neighbouring chunks into clusters.
  */
 public class ChunkScanner {
 
@@ -41,6 +42,8 @@ public class ChunkScanner {
         public int cx, cz;
         public double score;
         public int containers, shulkers, spawners, other, stacked;
+        public int machines, signs; // hoppers/furnaces/dispensers, signs
+        public boolean bell; // village marker
         public int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
         public final List<Target> targets = new ArrayList<>();
     }
@@ -48,7 +51,7 @@ public class ChunkScanner {
     public static class Cluster {
         public final List<Entry> chunks = new ArrayList<>();
         public double score;
-        public int containers, shulkers, spawners, stacked;
+        public int containers, shulkers, spawners, stacked, machines, signs;
         public int x, y, z;
         public double dist;
         private int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
@@ -60,6 +63,8 @@ public class ChunkScanner {
             shulkers += e.shulkers;
             spawners += e.spawners;
             stacked += e.stacked;
+            machines += e.machines;
+            signs += e.signs;
             minY = Math.min(minY, e.minY);
             maxY = Math.max(maxY, e.maxY);
         }
@@ -73,6 +78,19 @@ public class ChunkScanner {
             double dx = x - px, dz = z - pz;
             dist = Math.sqrt(dx * dx + dz * dz);
         }
+
+        /** What this looks like: STASH, FARM, BASE or SPAWNER. */
+        public String kind() {
+            if (containers == 0 && spawners > 0) return "SPAWNER";
+            if (machines >= 10 && machines > containers * 2) return "FARM";
+            if (signs >= 2 || (machines >= 4 && containers >= 4)) return "BASE";
+            return "STASH";
+        }
+
+        /** Rough size label. */
+        public String tier() {
+            return score >= 100 ? "MEGA" : score >= 40 ? "LARGE" : score >= 15 ? "MEDIUM" : "SMALL";
+        }
     }
 
     // ---- State ----
@@ -80,9 +98,13 @@ public class ChunkScanner {
     /** Snapshots for the renderer (replaced as whole lists, never edited in place). */
     public static volatile List<Target> targets = List.of();
     public static volatile List<Entry> highlight = List.of();
+    /** Bumped every time the result list is rebuilt, so the GUI knows when to refresh. */
+    public static volatile int version = 0;
 
     private static final Map<Long, Entry> entries = new HashMap<>();
     private static final Set<Long> alerted = new HashSet<>();
+    /** Chunks the user hid with the HIDE button. */
+    private static final Set<Long> ignored = new HashSet<>();
     private static String currentKey = "";
     private static int ticks = 0;
 
@@ -92,15 +114,36 @@ public class ChunkScanner {
 
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.player == null) return;
-        if (++ticks % 40 == 0) scan(mc);
+        if (!Config.on("bf.enabled")) return;
+        ticks++;
+        if (ticks % 40 == 0) scan(mc);
+        if (ticks % 2400 == 0) saveState(); // autosave every 2 minutes
     }
 
+    /** Wipes the in-memory map (does not touch files). */
     public static void clear() {
         entries.clear();
         alerted.clear();
+        ignored.clear();
         clusters = new ArrayList<>();
         targets = List.of();
         highlight = List.of();
+        version++;
+    }
+
+    /** Wipes memory AND the saved map of the current server/dimension. */
+    public static void resetAll() {
+        clear();
+        try {
+            if (!currentKey.isEmpty()) Files.deleteIfExists(stateFile());
+        } catch (Exception ignoredEx) {
+        }
+    }
+
+    /** Hides a result (all its chunks) until reset. */
+    public static void hide(Cluster c) {
+        for (Entry e : c.chunks) ignored.add(key(e.cx, e.cz));
+        scan(Minecraft.getInstance());
     }
 
     public static void scan(Minecraft mc) {
@@ -110,8 +153,10 @@ public class ChunkScanner {
         var server = mc.getCurrentServer();
         String key = (server != null ? server.ip : "singleplayer") + "|" + level.dimension();
         if (!key.equals(currentKey)) {
+            saveState();       // keep what we learned in the old world
             clear();
             currentKey = key;
+            loadState();       // restore the map of the new one
         }
 
         int pcx = mc.player.blockPosition().getX() >> 4;
@@ -131,9 +176,16 @@ public class ChunkScanner {
         rebuildClusters(mc.player.getX(), mc.player.getZ());
 
         List<Target> all = new ArrayList<>();
-        for (Entry e : entries.values()) all.addAll(e.targets);
+        if (Config.espOnlyStashes) {
+            for (Entry e : highlight) all.addAll(e.targets);
+        } else {
+            for (Map.Entry<Long, Entry> me : entries.entrySet()) {
+                if (!ignored.contains(me.getKey())) all.addAll(me.getValue().targets);
+            }
+        }
         targets = all;
 
+        version++;
         checkAlerts(mc);
     }
 
@@ -152,7 +204,10 @@ public class ChunkScanner {
             boolean container = false;
             boolean countsOnce = true;
 
-            if (b == Blocks.SPAWNER) {
+            if (b == Blocks.BELL) {
+                e.bell = true; // villages have bells, stashes almost never do
+                continue;
+            } else if (b == Blocks.SPAWNER) {
                 if (!Config.findSpawners) continue;
                 type = T_SPAWNER;
                 e.spawners++;
@@ -188,7 +243,13 @@ public class ChunkScanner {
             } else if (b == Blocks.HOPPER || b == Blocks.FURNACE || b == Blocks.BLAST_FURNACE
                     || b == Blocks.SMOKER || b == Blocks.DISPENSER || b == Blocks.DROPPER) {
                 e.other++;
+                e.machines++;
                 w = 0.5;
+            } else if (be instanceof SignBlockEntity || b == Blocks.BREWING_STAND
+                    || b == Blocks.ENCHANTING_TABLE || b == Blocks.JUKEBOX) {
+                e.other++; // small sign of player activity
+                if (be instanceof SignBlockEntity) e.signs++;
+                w = 0.25;
             } else {
                 continue;
             }
@@ -209,20 +270,33 @@ public class ChunkScanner {
         for (int n : columns.values()) if (n > 1) e.stacked += n - 1;
         e.score += 0.5 * e.stacked;
 
-        return e.score > 0 ? e : null;
+        // keep bell-only chunks so the village filter still knows about them
+        return (e.score > 0 || e.bell) ? e : null;
     }
 
-    private static boolean qualifies(Entry e) {
-        return e.score >= 2 || e.spawners > 0;
+    private static boolean usable(long k, Entry e, Set<Long> villageZone) {
+        if (e.score <= 0) return false;
+        if (!(e.score >= 2 || e.spawners > 0)) return false;
+        return !ignored.contains(k) && !villageZone.contains(k);
     }
 
     private static void rebuildClusters(double px, double pz) {
+        // Chunks within 2 of a village bell are treated as village
+        Set<Long> villageZone = new HashSet<>();
+        if (Config.ignoreVillages) {
+            for (Entry e : entries.values()) {
+                if (!e.bell) continue;
+                for (int dx = -2; dx <= 2; dx++)
+                    for (int dz = -2; dz <= 2; dz++) villageZone.add(key(e.cx + dx, e.cz + dz));
+            }
+        }
+
         Set<Long> seen = new HashSet<>();
         List<Cluster> out = new ArrayList<>();
 
         for (Map.Entry<Long, Entry> me : entries.entrySet()) {
             Entry start = me.getValue();
-            if (!qualifies(start) || seen.contains(me.getKey())) continue;
+            if (!usable(me.getKey(), start, villageZone) || seen.contains(me.getKey())) continue;
 
             Cluster c = new Cluster();
             Deque<Entry> queue = new ArrayDeque<>();
@@ -236,16 +310,19 @@ public class ChunkScanner {
                     for (int dz = -1; dz <= 1; dz++) {
                         long nk = key(e.cx + dx, e.cz + dz);
                         Entry n = entries.get(nk);
-                        if (n != null && qualifies(n) && seen.add(nk)) queue.add(n);
+                        if (n != null && usable(nk, n, villageZone) && seen.add(nk)) queue.add(n);
                     }
                 }
             }
 
             c.finish(px, pz);
-            if (c.score >= Config.threshold || (Config.findSpawners && c.spawners > 0)) out.add(c);
+            boolean spawnerOk = Config.findSpawners && c.spawners > 0
+                    && (Config.loneSpawners || c.spawners >= 2 || c.score - 3.0 * c.spawners >= 2);
+            if (c.score >= Config.threshold || spawnerOk) out.add(c);
         }
 
-        out.sort(Comparator.comparingDouble((Cluster c) -> -c.score));
+        if (Config.sortByDistance) out.sort(Comparator.comparingDouble((Cluster c) -> c.dist));
+        else out.sort(Comparator.comparingDouble((Cluster c) -> -c.score));
         clusters = out;
 
         List<Entry> hl = new ArrayList<>();
@@ -264,23 +341,40 @@ public class ChunkScanner {
             for (Entry e : c.chunks) alerted.add(key(e.cx, e.cz));
             found = true;
             if (Config.autoAlert && mc.player != null) {
-                mc.player.displayClientMessage(Component.literal("[BaseFinder] Stash found at X " + c.x + " Y " + c.y
-                        + " Z " + c.z + " (score " + (int) c.score + ", " + c.containers + " containers, "
-                        + c.spawners + " spawners)"), false);
+                mc.player.displayClientMessage(Component.literal("[BaseFinder] " + c.tier() + " " + c.kind().toLowerCase() + " at "
+                        + Config.xyz(c.x, c.y, c.z, "st.chat") + " (score " + (int) c.score + ", " + c.containers
+                        + " containers, " + c.spawners + " spawners, " + (int) c.dist + "m away)"), false);
             }
         }
-        if (found) save();
+        if (found) {
+            save();
+            saveState();
+        }
+    }
+
+    // ------------------------------------------------------------------ files
+    private static Path dir() throws Exception {
+        Path dir = FabricLoader.getInstance().getConfigDir().resolve("basefinder");
+        Files.createDirectories(dir);
+        return dir;
+    }
+
+    private static String safeName() {
+        return currentKey.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static Path stateFile() throws Exception {
+        return dir().resolve(safeName() + ".dat");
     }
 
     /** Writes all current results to .minecraft/config/basefinder/<server>.txt. Returns the path or null. */
     public static String save() {
         try {
-            Path dir = FabricLoader.getInstance().getConfigDir().resolve("basefinder");
-            Files.createDirectories(dir);
-            Path file = dir.resolve(currentKey.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt");
+            Path file = dir().resolve(safeName() + ".txt");
             StringBuilder sb = new StringBuilder("# BaseFinder results: " + currentKey + "\n");
             for (Cluster c : clusters) {
                 sb.append("X ").append(c.x).append(" Y ").append(c.y).append(" Z ").append(c.z)
+                        .append(" | ").append(c.tier()).append(" ").append(c.kind())
                         .append(" | score ").append((int) c.score)
                         .append(" | containers ").append(c.containers)
                         .append(" | shulkers ").append(c.shulkers)
@@ -292,6 +386,87 @@ public class ChunkScanner {
             return file.toString();
         } catch (Exception ex) {
             return null;
+        }
+    }
+
+    /** Saves the whole remembered chunk map so it survives restarts. */
+    public static void saveState() {
+        if (currentKey.isEmpty() || !Config.on("ut.memory")) return;
+        try {
+            Path f = stateFile();
+            if (entries.isEmpty() && ignored.isEmpty()) {
+                Files.deleteIfExists(f);
+                return;
+            }
+            StringBuilder sb = new StringBuilder("# BaseFinder state v1\n");
+            for (long k : ignored) sb.append("I ").append(k).append('\n');
+            for (Entry e : entries.values()) {
+                sb.append("E ").append(e.cx).append(' ').append(e.cz).append(' ').append(e.score)
+                        .append(' ').append(e.containers).append(' ').append(e.shulkers)
+                        .append(' ').append(e.spawners).append(' ').append(e.other)
+                        .append(' ').append(e.stacked).append(' ').append(e.minY).append(' ').append(e.maxY)
+                        .append(' ').append(e.bell ? 1 : 0).append(' ');
+                sb.append(e.machines).append(' ').append(e.signs).append(' ');
+                if (e.targets.isEmpty()) sb.append('-');
+                else {
+                    boolean first = true;
+                    for (Target t : e.targets) {
+                        if (!first) sb.append(';');
+                        first = false;
+                        sb.append(t.x()).append(',').append(t.y()).append(',').append(t.z()).append(',').append(t.type());
+                    }
+                }
+                sb.append('\n');
+            }
+            Files.writeString(f, sb.toString());
+        } catch (Exception ex) {
+        }
+    }
+
+    private static void loadState() {
+        if (!Config.on("ut.memory")) return;
+        try {
+            Path f = stateFile();
+            if (!Files.exists(f)) return;
+            for (String line : Files.readAllLines(f)) {
+                try {
+                    if (line.startsWith("I ")) {
+                        ignored.add(Long.parseLong(line.substring(2).trim()));
+                    } else if (line.startsWith("E ")) {
+                        String[] p = line.split(" ");
+                        Entry e = new Entry();
+                        e.cx = Integer.parseInt(p[1]);
+                        e.cz = Integer.parseInt(p[2]);
+                        e.score = Double.parseDouble(p[3]);
+                        e.containers = Integer.parseInt(p[4]);
+                        e.shulkers = Integer.parseInt(p[5]);
+                        e.spawners = Integer.parseInt(p[6]);
+                        e.other = Integer.parseInt(p[7]);
+                        e.stacked = Integer.parseInt(p[8]);
+                        e.minY = Integer.parseInt(p[9]);
+                        e.maxY = Integer.parseInt(p[10]);
+                        e.bell = p[11].equals("1");
+                        boolean newFmt = p.length > 14 && p[12].matches("\\d+") && p[13].matches("\\d+");
+                        int tIdx = newFmt ? 14 : 12;
+                        if (newFmt) {
+                            e.machines = Integer.parseInt(p[12]);
+                            e.signs = Integer.parseInt(p[13]);
+                        }
+                        if (p.length > tIdx && !p[tIdx].equals("-")) {
+                            for (String t : p[tIdx].split(";")) {
+                                String[] q = t.split(",");
+                                e.targets.add(new Target(Integer.parseInt(q[0]), Integer.parseInt(q[1]),
+                                        Integer.parseInt(q[2]), Integer.parseInt(q[3])));
+                            }
+                        }
+                        entries.put(key(e.cx, e.cz), e);
+                        alerted.add(key(e.cx, e.cz)); // old finds should not alert again
+                    }
+                } catch (Exception badLine) {
+                    // skip corrupt line
+                }
+            }
+        } catch (Exception ex) {
         }
     }
 }
