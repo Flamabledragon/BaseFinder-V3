@@ -10,7 +10,6 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.enums.ChestType;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
-import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.chunk.WorldChunk;
 
@@ -237,13 +236,8 @@ public class ChunkScanner {
             if (!isNew) continue;
             for (Entry e : c.chunks) alerted.add(key(e.cx, e.cz));
             found = true;
-            if (autoAlert && mc.player != null) {
-                mc.player.sendMessage(Text.literal("[BaseFinder] Stash found at X " + c.x + " Y " + c.y + " Z " + c.z
-                        + " (score " + (int) c.score + ", " + c.containers + " containers, "
-                        + c.spawners + " spawners)"), false);
-            }
         }
-        if (found) save();
+        if (found && autoAlert) save();
     }
 
     /** Writes all current results to .minecraft/config/basefinder/<server>.txt. Returns the path or null. */
