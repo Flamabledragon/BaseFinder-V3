@@ -123,6 +123,7 @@ public class ChunkScanner {
     /** Wipes the in-memory map (does not touch files). */
     public static void clear() {
         entries.clear();
+        naturalCache.clear();
         alerted.clear();
         ignored.clear();
         clusters = new ArrayList<>();
@@ -199,6 +200,9 @@ public class ChunkScanner {
             BlockState s = be.getBlockState();
             Block b = s.getBlock();
             BlockPos p = be.getBlockPos();
+            boolean isStorage = b == Blocks.CHEST || b == Blocks.TRAPPED_CHEST || b == Blocks.BARREL
+                    || b instanceof ShulkerBoxBlock;
+            if (isStorage && Config.findStorage && Config.on("bf.nonat") && isNatural(chunk, cx, cz, p)) continue;
             double w;
             int type = -1;
             boolean container = false;
@@ -209,6 +213,7 @@ public class ChunkScanner {
                 continue;
             } else if (b == Blocks.SPAWNER) {
                 if (!Config.findSpawners) continue;
+                if (Config.on("bf.nomine") && nearCobweb(chunk, cx, cz, p)) continue; // cave spider spawner of a mineshaft
                 type = T_SPAWNER;
                 e.spawners++;
                 w = 3;
@@ -266,6 +271,9 @@ public class ChunkScanner {
             }
         }
 
+        // hoppers, dispensers and furnaces in bulk are farms, not loot: stop them inflating the score
+        if (e.machines > 6) e.score -= 0.5 * (e.machines - 6);
+
         // Stacked storage (several containers on top of each other) is a strong stash sign
         for (int n : columns.values()) if (n > 1) e.stacked += n - 1;
         e.score += 0.5 * e.stacked;
@@ -274,6 +282,54 @@ public class ChunkScanner {
         return (e.score > 0 || e.bell) ? e : null;
     }
 
+    private static final Map<Long, Boolean> naturalCache = new HashMap<>();
+
+    /** Blocks that mark generated structures (end city, bastion, fortress, dungeon, stronghold, ancient city). */
+    private static final Set<Block> NATURAL = Set.of(
+            Blocks.PURPUR_BLOCK, Blocks.PURPUR_PILLAR, Blocks.PURPUR_STAIRS, Blocks.END_STONE_BRICKS,
+            Blocks.NETHER_BRICKS, Blocks.NETHER_BRICK_FENCE, Blocks.NETHER_BRICK_STAIRS,
+            Blocks.POLISHED_BLACKSTONE_BRICKS, Blocks.CRACKED_POLISHED_BLACKSTONE_BRICKS, Blocks.GILDED_BLACKSTONE,
+            Blocks.CHISELED_POLISHED_BLACKSTONE,
+            Blocks.MOSSY_COBBLESTONE, Blocks.MOSSY_STONE_BRICKS, Blocks.CRACKED_STONE_BRICKS, Blocks.COBWEB,
+            Blocks.END_PORTAL_FRAME,
+            Blocks.SCULK, Blocks.SCULK_SENSOR, Blocks.DEEPSLATE_TILES, Blocks.REINFORCED_DEEPSLATE);
+
+    /** True when a container sits inside a generated structure (6+ signature blocks nearby, same chunk only). */
+    private static boolean isNatural(LevelChunk chunk, int cx, int cz, BlockPos p) {
+        long k = p.asLong();
+        Boolean cached = naturalCache.get(k);
+        if (cached != null) return cached;
+        int hits = 0;
+        outer:
+        for (int dx = -3; dx <= 3; dx++)
+            for (int dz = -3; dz <= 3; dz++) {
+                int x = p.getX() + dx, z = p.getZ() + dz;
+                if ((x >> 4) != cx || (z >> 4) != cz) continue;
+                for (int dy = -2; dy <= 2; dy++) {
+                    if (NATURAL.contains(chunk.getBlockState(new BlockPos(x, p.getY() + dy, z)).getBlock())) {
+                        if (++hits >= 6) break outer;
+                    }
+                }
+            }
+        boolean r = hits >= 6;
+        naturalCache.put(k, r);
+        return r;
+    }
+
+    /** Mineshaft spawners sit in cobwebs. Only looks inside the same chunk. */
+    private static boolean nearCobweb(LevelChunk chunk, int cx, int cz, BlockPos p) {
+        for (int dx = -4; dx <= 4; dx++)
+            for (int dz = -4; dz <= 4; dz++) {
+                int x = p.getX() + dx, z = p.getZ() + dz;
+                if ((x >> 4) != cx || (z >> 4) != cz) continue;
+                for (int dy = -2; dy <= 2; dy++)
+                    if (chunk.getBlockState(new BlockPos(x, p.getY() + dy, z)).is(Blocks.COBWEB)) return true;
+            }
+        return false;
+    }
+
+    public static int mapped() { return entries.size(); }
+
     private static boolean usable(long k, Entry e, Set<Long> villageZone) {
         if (e.score <= 0) return false;
         if (!(e.score >= 2 || e.spawners > 0)) return false;
@@ -281,13 +337,13 @@ public class ChunkScanner {
     }
 
     private static void rebuildClusters(double px, double pz) {
-        // Chunks within 2 of a village bell are treated as village
+        // Chunks within 3 of a village bell are treated as village
         Set<Long> villageZone = new HashSet<>();
         if (Config.ignoreVillages) {
             for (Entry e : entries.values()) {
                 if (!e.bell) continue;
-                for (int dx = -2; dx <= 2; dx++)
-                    for (int dz = -2; dz <= 2; dz++) villageZone.add(key(e.cx + dx, e.cz + dz));
+                for (int dx = -3; dx <= 3; dx++)
+                    for (int dz = -3; dz <= 3; dz++) villageZone.add(key(e.cx + dx, e.cz + dz));
             }
         }
 
@@ -316,6 +372,7 @@ public class ChunkScanner {
             }
 
             c.finish(px, pz);
+            if (Config.on("bf.nofarm") && c.kind().equals("FARM")) continue;
             boolean spawnerOk = Config.findSpawners && c.spawners > 0
                     && (Config.loneSpawners || c.spawners >= 2 || c.score - 3.0 * c.spawners >= 2);
             if (c.score >= Config.threshold || spawnerOk) out.add(c);

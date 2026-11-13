@@ -23,8 +23,8 @@ public final class Modules {
 
     public enum Type { TOGGLE, SLIDER, CHOICE, BUTTON, HEADER }
 
-    public static final String[] THEME_NAMES = {"Lime", "Emerald", "Cyan", "Amber", "Rose", "Purple"};
-    public static final int[] THEMES = {0xFFC9E64A, 0xFF3EDC81, 0xFF3FD0E0, 0xFFFFB84A, 0xFFFF5C8A, 0xFFB65CFF};
+    public static final String[] THEME_NAMES = {"Sage", "Teal", "Steel", "Sand", "Rose", "Lavender"};
+    public static final int[] THEMES = {0xFF7FB069, 0xFF5FA8A0, 0xFF6C8EBF, 0xFFC9A66B, 0xFFB07A8C, 0xFF9179B8};
 
     // ---- deferred work, polled by the GUI tick ----
     private static int scanWait = -1, saveWait = -1;
@@ -190,6 +190,9 @@ public final class Modules {
                 tog("Scan containers", () -> Config.findStorage, v -> Config.findStorage = v, true),
                 tog("Scan spawners", () -> Config.findSpawners, v -> Config.findSpawners = v, true),
                 tog("Lone spawners count", () -> Config.loneSpawners, v -> Config.loneSpawners = v, true),
+                tog("Ignore mineshafts", () -> Config.on("bf.nomine"), v -> Config.set("bf.nomine", v ? 1 : 0), true),
+                tog("Ignore natural structures", () -> Config.on("bf.nonat"), v -> Config.set("bf.nonat", v ? 1 : 0), true),
+                tog("Ignore farms", () -> Config.on("bf.nofarm"), v -> Config.set("bf.nofarm", v ? 1 : 0), true),
                 tog("Ignore villages", () -> Config.ignoreVillages, v -> Config.ignoreVillages = v, true),
                 tog("Chat alerts", () -> Config.autoAlert, v -> Config.autoAlert = v, false),
                 header("Tuning"),
@@ -277,6 +280,25 @@ public final class Modules {
                 slider("Range", "hud.prange", 32, 256, 32, v -> v + " blocks"),
                 slider("Max names", "hud.pcount", 1, 10, 1, String::valueOf));
 
+        add("fullbright", "Fullbright", Cat.VISUAL,
+                "See in the dark. Client-side visual only, nothing is sent to the server.",
+                key("Enabled", "fv.enabled"));
+
+        add("structures", "Structure Finder", Cat.WORLD,
+                "Boxes trial spawners, vaults and sculk shriekers (trial chambers, ancient cities).",
+                key("Enabled", "sf.enabled"),
+                slider("Scan radius", "sf.radius", 2, 16, 1, v -> v + " chunks"),
+                key("Trial spawners and vaults", "sf.trial"),
+                key("Sculk shriekers", "sf.shrieker"));
+
+        add("totemhud", "Totem Counter", Cat.VISUAL,
+                "Shows how many totems of undying you carry.",
+                key("Enabled", "hud.totems"));
+
+        add("mapstats", "Map Stats HUD", Cat.VISUAL,
+                "Shows how many chunks Base Finder has mapped and how many stashes it holds.",
+                key("Enabled", "hud.mapstats"));
+
         add("memory", "Map Memory", Cat.UTILITY,
                 "Remembers scanned chunks per server and dimension across restarts.",
                 key("Enabled", "ut.memory"),
@@ -306,9 +328,5 @@ public final class Modules {
         APPEARANCE_SETTINGS.add(header("Theme"));
         APPEARANCE_SETTINGS.add(choice("Accent colour", "ap.theme", THEME_NAMES));
         APPEARANCE_SETTINGS.add(slider("Panel opacity", "ap.opacity", 60, 100, 2, v -> v + "%"));
-        APPEARANCE_SETTINGS.add(header("3D block"));
-        APPEARANCE_SETTINGS.add(key("Show rotating block", "ap.cube"));
-        APPEARANCE_SETTINGS.add(choice("Block style", "ap.style", "Grass", "Dirt", "Stone", "Gold ore"));
-        APPEARANCE_SETTINGS.add(slider("Spin speed", "ap.spin", 10, 150, 10, v -> v + "%"));
     }
 }

@@ -29,7 +29,7 @@ public final class Config {
     // Noise filters (v2.1)
     public static boolean espOnlyStashes = true;  // ESP boxes only inside detected stashes
     public static boolean ignoreVillages = true;  // skip chunks around village bells
-    public static boolean loneSpawners = true;    // false = a single spawner alone is not a result
+    public static boolean loneSpawners = false;   // false = a single spawner alone is not a result
 
     // Results
     public static boolean sortByDistance = false;
@@ -62,12 +62,16 @@ public final class Config {
         d("st.on", 0); d("st.chat", 1); d("st.hud", 1); d("st.gui", 1);
         // World / extra modules (all off by default)
         d("am.enabled", 0); d("am.radius", 6);
+        d("bf.nomine", 1); d("bf.nonat", 1); d("bf.nofarm", 1);
+        d("fv.enabled", 0);
+        d("sf.enabled", 0); d("sf.radius", 8); d("sf.trial", 1); d("sf.shrieker", 1);
+        d("hud.totems", 0); d("hud.mapstats", 0);
         d("tr.enabled", 0); d("tr.dots", 30);
         d("hud.light", 0); d("hud.players", 0); d("hud.prange", 128); d("hud.pcount", 5);
         // Utility
         d("ut.memory", 1);
         // Appearance
-        d("ap.theme", 0); d("ap.cube", 1); d("ap.spin", 50); d("ap.opacity", 94); d("ap.style", 0);
+        d("ap.theme", 1); d("ap.cube", 1); d("ap.spin", 50); d("ap.opacity", 94); d("ap.style", 0);
 
         favorites.add("basefinder");
         favorites.add("sound");
@@ -122,7 +126,7 @@ public final class Config {
             chunkHighlight = bool(p, "chunkHighlight", true);
             espOnlyStashes = bool(p, "espOnlyStashes", true);
             ignoreVillages = bool(p, "ignoreVillages", true);
-            loneSpawners = bool(p, "loneSpawners", true);
+            loneSpawners = bool(p, "loneSpawners", false);
             sortByDistance = bool(p, "sortByDistance", false);
             radius = num(p, "radius", 32, 4, 64);
             threshold = num(p, "threshold", 8, 2, 100);

@@ -1,4 +1,4 @@
-# Base Finder 2.3 (Fabric 1.21.11, Mojang mappings)
+# Base Finder 2.5 (Fabric 1.21.11, Mojang mappings)
 Right Shift opens the module-control GUI (Modules / Results / HUD / Appearance).
 
 - Base Finder: stash scanner + through-walls ESP, village filter, remembered map

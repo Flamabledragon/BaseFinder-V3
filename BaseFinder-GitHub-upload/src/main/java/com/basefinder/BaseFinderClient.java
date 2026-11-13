@@ -32,6 +32,7 @@ public class BaseFinderClient implements ClientModInitializer {
             ChunkScanner.tick(client);
             SoundDetector.tick(client);
             WorldScanner.tick(client);
+            Extras.tick(client);
             while (openGui.consumeClick()) {
                 if (client.level != null && client.screen == null) {
                     if (Config.on("bf.enabled")) ChunkScanner.scan(client);

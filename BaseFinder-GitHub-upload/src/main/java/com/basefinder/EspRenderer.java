@@ -99,8 +99,9 @@ public final class EspRenderer {
         boolean zones = bf && Config.chunkHighlight && !chunks.isEmpty();
         List<SoundDetector.Marker> marks = SoundDetector.markers();
         List<net.minecraft.core.BlockPos> geodes = Config.on("am.enabled") ? WorldScanner.amethyst : List.of();
+        List<WorldScanner.Hit> structs = Config.on("sf.enabled") ? WorldScanner.structures : List.of();
         boolean tracer = bf && Config.on("tr.enabled") && !ChunkScanner.clusters.isEmpty();
-        if (!boxes && !zones && marks.isEmpty() && geodes.isEmpty() && !tracer) return;
+        if (!boxes && !zones && marks.isEmpty() && geodes.isEmpty() && structs.isEmpty() && !tracer) return;
 
         PoseStack matrices = context.matrices();
         Vec3 camera = context.worldState().cameraRenderState.pos;
@@ -159,6 +160,25 @@ public final class EspRenderer {
                         bp.getX() - e, bp.getY() - e, bp.getZ() - e,
                         bp.getX() + 1f + e, bp.getY() + 1f + e, bp.getZ() + 1f + e,
                         0.80f, 0.45f, 1.0f, Math.min(1f, alpha + 0.2f));
+                count++;
+            }
+        }
+
+        // Structure Finder boxes
+        if (!structs.isEmpty()) {
+            float[][] sc = {{1.0f, 0.60f, 0.20f}, {0.30f, 0.90f, 0.90f}, {0.30f, 0.90f, 0.60f}};
+            double sr2 = (range + 64) * (range + 64);
+            for (WorldScanner.Hit h : structs) {
+                if (count >= MAX_BOXES) break;
+                var bp = h.pos();
+                double dx = bp.getX() + 0.5 - camera.x, dy = bp.getY() + 0.5 - camera.y, dz = bp.getZ() + 0.5 - camera.z;
+                if (dx * dx + dy * dy + dz * dz > sr2) continue;
+                float[] c = sc[h.kind()];
+                ensureBuffer();
+                float e = 0.03f;
+                renderFilledBox(pose, buffer, bp.getX() - e, bp.getY() - e, bp.getZ() - e,
+                        bp.getX() + 1f + e, bp.getY() + 1f + e, bp.getZ() + 1f + e,
+                        c[0], c[1], c[2], Math.min(1f, alpha + 0.2f));
                 count++;
             }
         }

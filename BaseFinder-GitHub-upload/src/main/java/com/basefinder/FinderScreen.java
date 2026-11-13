@@ -27,14 +27,14 @@ public class FinderScreen extends Screen {
     private record CardPos(Modules.Module m, int x, int y) {}
 
     // Neutral dark palette (the accent comes from the chosen theme)
-    private static final int CARD = 0xFF181B20;
-    private static final int CARD_HOVER = 0xFF20242B;
-    private static final int PANEL_EDGE = 0xFF2A2D33;
-    private static final int SIDEBAR = 0xFF14171B;
-    private static final int LINE = 0xFF22262C;
-    private static final int TEXT = 0xFFEDEFF2;
-    private static final int DIM = 0xFF8A9099;
-    private static final int OFF = 0xFF3A3F47;
+    private static final int CARD = 0xFF16181C;
+    private static final int CARD_HOVER = 0xFF1D2025;
+    private static final int PANEL_EDGE = 0xFF25282D;
+    private static final int SIDEBAR = 0xFF121418;
+    private static final int LINE = 0xFF1E2126;
+    private static final int TEXT = 0xFFD5D8DD;
+    private static final int DIM = 0xFF737A84;
+    private static final int OFF = 0xFF34383F;
 
     private static final String[] SIDE = buildSide();
 
@@ -408,7 +408,7 @@ public class FinderScreen extends Screen {
 
     private void pill(GuiGraphics g, int x, int y, boolean on) {
         rect(g, x, y, 24, 10, on ? accent() : OFF);
-        rect(g, on ? x + 15 : x + 1, y + 1, 8, 8, 0xFFFFFFFF);
+        rect(g, on ? x + 15 : x + 1, y + 1, 8, 8, 0xFFD5D8DD);
     }
 
     private double angle() {
@@ -429,7 +429,8 @@ public class FinderScreen extends Screen {
         // top bar
         rect(g, px, py, W, 38, withAlpha(0x15181D, bgAlpha));
         rect(g, px, py + 38, W, 1, PANEL_EDGE);
-        CubeRenderer.draw(g, px + 24, py + 20, 6.5f, angle(), 4, Config.v("ap.style"));
+        rect(g, px + 18, py + 14, 12, 12, acc);
+        rect(g, px + 21, py + 17, 6, 6, 0xFF101216);
         text(g, "BASEFINDER", px + 44, py + 10, acc);
         text(g, "MODULE CONTROL", px + 44, py + 21, TEXT);
         Tab[] tabs = Tab.values();
@@ -505,9 +506,6 @@ public class FinderScreen extends Screen {
         int maxW = ctW - 80;
         while (this.font.width(sub) > maxW && sub.length() > 4) sub = sub.substring(0, sub.length() - 4) + "...";
         text(g, sub, ctX + 10, bodyY + 28, DIM);
-        if (Config.on("ap.cube")) {
-            CubeRenderer.draw(g, ctX + ctW - 32, bodyY + 21, 10f, angle(), 8, Config.v("ap.style"));
-        }
 
         // search bar
         rect(g, ctX, bodyY + 44, ctW, 16, CARD);
@@ -591,7 +589,7 @@ public class FinderScreen extends Screen {
                 rect(g, x, y + 19, (int) (w * f), 3, acc);
                 int kx = x + (int) (w * f), ky = y + 20;
                 int[] half = {1, 2, 3, 3, 3, 2, 1};
-                for (int i = 0; i < 7; i++) rect(g, kx - half[i], ky - 3 + i, half[i] * 2 + 1, 1, 0xFFFFFFFF);
+                for (int i = 0; i < 7; i++) rect(g, kx - half[i], ky - 3 + i, half[i] * 2 + 1, 1, 0xFFD5D8DD);
             }
         }
     }
@@ -603,13 +601,10 @@ public class FinderScreen extends Screen {
         border(g, ctX, bodyY, ww, bodyB - bodyY, LINE);
         text(g, tab == Tab.HUD ? "HUD SETTINGS" : "APPEARANCE", ctX + 10, bodyY + 8, acc);
         text(g, tab == Tab.HUD ? "Everything drawn on your screen while playing."
-                : "Theme, panel and the rotating 3D block.", ctX + 10, bodyY + 20, DIM);
+                : "Theme and panel.", ctX + 10, bodyY + 20, DIM);
         arrows(g, mx, my, rtX + rtW - 34, bodyY + 6);
         for (Placed p : placed) drawSetting(g, mx, my, p, ctX + 10, ww - 20, acc);
 
-        if (tab == Tab.APPEARANCE && Config.on("ap.cube")) {
-            CubeRenderer.draw(g, ctX + ww - 60, bodyB - 60, 22f, angle(), 8, Config.v("ap.style"));
-        }
     }
 
     // ---------------------------------------------------------------- RESULTS tab

@@ -67,6 +67,20 @@ public final class Hud {
             }
         }
 
+        if (Config.on("hud.totems")) {
+            int n = 0;
+            var inv = mc.player.getInventory();
+            for (int i = 0; i < inv.getContainerSize(); i++) {
+                var st = inv.getItem(i);
+                if (st.is(net.minecraft.world.item.Items.TOTEM_OF_UNDYING)) n += st.getCount();
+            }
+            out.add("Totems: " + n);
+        }
+
+        if (Config.on("hud.mapstats")) {
+            out.add("Mapped chunks: " + ChunkScanner.mapped() + "   Stashes: " + ChunkScanner.clusters.size());
+        }
+
         if (Config.on("hud.light")) {
             var pos = mc.player.blockPosition();
             int bl = mc.level.getBrightness(net.minecraft.world.level.LightLayer.BLOCK, pos);
