@@ -2,6 +2,7 @@ package com.basefinder;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 
@@ -73,8 +74,10 @@ public class FinderScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
+    public boolean mouseClicked(Click click, boolean doubled) {
+        if (click.button() != 0) return super.mouseClicked(click, doubled);
+        double mouseX = click.x();
+        double mouseY = click.y();
         int x = panelLeft(), y = panelTop();
         if (inside(mouseX, mouseY, x + 18, y + 62, 254, 56)) {
             ChunkScanner.findStorage = !ChunkScanner.findStorage; rescan(); return true;
@@ -94,7 +97,7 @@ public class FinderScreen extends Screen {
             String path = ChunkScanner.save(); status = path == null ? "Could not save local results" : "Saved locally: " + path; return true;
         }
         if (inside(mouseX, mouseY, x + 358, y + 282, 184, 30)) { ChunkScanner.clear(); status = "Results cleared"; return true; }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(click, doubled);
     }
 
     private boolean inside(double mx, double my, int x, int y, int w, int h) {
