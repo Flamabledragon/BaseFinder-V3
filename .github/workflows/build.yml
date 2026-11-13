@@ -1,4 +1,3 @@
-
 name: build
 
 on: [push, pull_request, workflow_dispatch]
@@ -20,12 +19,11 @@ jobs:
           gradle-version: 9.2.1
 
       - name: Build BaseFinder
-        working-directory: ./BaseFinder-GitHub-upload
         run: gradle build --no-daemon
 
       - name: Upload BaseFinder JAR
         uses: actions/upload-artifact@v4
         with:
           name: BaseFinder-mod
-          path: BaseFinder-GitHub-upload/build/libs/*.jar
+          path: build/libs/*.jar
           if-no-files-found: error
